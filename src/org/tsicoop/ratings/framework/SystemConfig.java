@@ -35,16 +35,18 @@ public class SystemConfig {
         }
     }
 
-    public static void loadAppConfig(ServletContext ctx) {
-        appCtx = ctx;
-        if (appConfig == null) {
-            appConfig = new Properties();
-        }
-        appConfig.setProperty("framework.db.name",System.getenv("POSTGRES_DB"));
-        appConfig.setProperty("framework.db.user",System.getenv("POSTGRES_USER"));
-        appConfig.setProperty("framework.db.password",System.getenv("POSTGRES_PASSWD"));
-        appConfig.setProperty("framework.db.host",System.getenv("POSTGRES_HOST"));
+   public static void loadAppConfig(ServletContext ctx) {
+    appCtx = ctx;
+    if (appConfig == null) {
+        appConfig = new Properties();
     }
+
+    appConfig.setProperty("framework.db.name", "tsi_ratings");
+    appConfig.setProperty("framework.db.user", "postgres");
+    appConfig.setProperty("framework.db.password", "Harsh@2005");
+    appConfig.setProperty("framework.db.host", "localhost");
+    appConfig.setProperty("framework.db.port", "5432");
+}
 
     public static Properties getAppConfig() {
         return appConfig;

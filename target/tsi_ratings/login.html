@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TSI Ratings Login - Secure Access</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+        :root {
+            --tsi-primary: #006A67; /* Primary Dark Teal Color */
+            --background: #f4fbf9; /* Light, clean background */
+            --border-color: #D1D5DB; /* Light gray border */
+            --focus-color: #008080; /* A slightly brighter teal for focus */
+        }
+
+        body {
+            background-color: var(--background);
+            font-family: ui-sans-serif, system-ui, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .login-card {
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            max-width: 500px;
+        }
+
+        .primary-text { color: var(--tsi-primary); }
+
+        .input-style {
+            border-color: var(--border-color);
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+        }
+
+        .input-style:focus {
+            outline: none;
+            border-color: var(--tsi-primary);
+            box-shadow: 0 0 0 1px var(--tsi-primary);
+        }
+
+        .otp-input {
+            width: 3rem;
+            height: 3rem;
+            text-align: center;
+            font-size: 1.5rem;
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-color);
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+        }
+
+        .otp-input:focus {
+            outline: none;
+            border-color: var(--tsi-primary);
+            box-shadow: 0 0 0 3px rgba(0, 106, 103, 0.5);
+        }
+
+        .animated-button {
+            background-color: var(--tsi-primary);
+            color: #FFFFFF;
+            transition: background-color 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        /* Captcha style for better visibility */
+        #captcha-display {
+             background: #FEFEFE;
+             border: 2px dashed var(--tsi-primary);
+             color: #262626;
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="login-card w-full p-8 md:p-12 bg-white rounded-xl border border-gray-200">
+
+  <div class="text-center mb-6">
+    <img src="tsi.png" alt="TSI Logo" class="h-10 w-auto mx-auto" />
+    <span class="text-3xl font-bold primary-text block mt-2">TSI Ratings</span>
+  </div>
+
+  <h1 class="text-xl font-semibold text-gray-700 text-center">Stakeholder Login</h1>
+  <p class="text-gray-500 mb-8 text-center text-sm">Secure access via Email OTP.</p>
+
+  <form id="login-form">
+
+    <div id="step-1">
+      <div class="mb-6">
+        <label for="email-input" class="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+        <input type="email" id="email-input" name="email" required
+               class="input-style w-full px-4 py-2 border rounded-lg shadow-sm" placeholder="your.name@organization.com">
+      </div>
+
+      <div class="mb-8 p-4 border border-gray-300 rounded-lg bg-gray-50">
+        <label class="block text-sm font-medium text-gray-700 mb-2">Security Check (Captcha)</label>
+        <div class="flex items-center space-x-4">
+          <div id="captcha-display" class="w-32 text-center py-2 px-4 rounded-lg text-lg font-mono tracking-wider select-none transform rotate-[-1deg] shadow-sm">
+          </div>
+          <input type="text" id="captcha-input" name="captcha" required placeholder="Enter code"
+                 class="input-style flex-grow px-4 py-2 border rounded-lg">
+          <button type="button" onclick="generateCaptcha()" class="primary-text hover:opacity-80 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <button type="button" id="request-otp-btn" onclick="requestOTP(false)"
+              class="animated-button w-full h-11 inline-flex items-center justify-center rounded-lg font-medium text-lg tracking-wide hover:opacity-90">
+        Request OTP
+      </button>
+    </div>
+
+    <div id="step-2" class="hidden">
+      <p class="text-md text-gray-700 mb-4">A 6-digit code has been sent to <span id="otp-email-display" class="font-bold primary-text"></span>. Please check your inbox.</p>
+
+      <div class="flex justify-between space-x-2 mb-6" id="otp-inputs-container">
+      </div>
+
+      <button type="submit" id="verify-login-btn"
+              class="animated-button w-full h-11 inline-flex items-center justify-center rounded-lg font-medium text-lg tracking-wide hover:opacity-90">
+        Verify & Log In
+      </button>
+
+      <div class="mt-4 text-center">
+        <button type="button" onclick="requestOTP(true)" id="resend-otp-btn" class="primary-text hover:opacity-80 text-sm font-medium" disabled>
+          Resend Code (<span id="otp-timer">30</span>s)
+        </button>
+      </div>
+
+      <div class="mt-6 text-center border-t pt-4">
+        <button type="button" onclick="showStep(1)" class="text-gray-500 hover:text-gray-700 text-sm font-medium">
+          Change Email
+        </button>
+      </div>
+    </div>
+
+    <div id="alert-container" class="mt-8 min-h-[40px] transition-opacity duration-300">
+    </div>
+  </form>
+
+  <div class="mt-8 text-center border-t pt-4">
+    <span class="text-gray-500 mr-2">New user?</span>
+    <a href="register.html" class="font-semibold primary-text hover:opacity-80 transition duration-150">Register Now</a>
+  </div>
+</div>
+
+<script>
+        const API_URL = 'api/v1/user'; // API endpoint based on User.java
+        let currentCaptcha = '';
+        let timerInterval;
+        const alertContainer = document.getElementById('alert-container');
+
+        // --- Utility Functions ---
+
+        /**
+         * Displays a formatted alert message.
+         * @param {string} message - The text content of the alert.
+         * @param {string} type - 'success', 'error', or 'info'.
+         */
+        function showAlert(message, type) {
+            let bgColor, textColor, borderColor;
+
+            if (type === 'success') {
+                bgColor = 'bg-green-100';
+                textColor = 'text-green-800';
+                borderColor = 'border-green-500';
+            } else if (type === 'error') {
+                bgColor = 'bg-red-100';
+                textColor = 'text-red-800';
+                borderColor = 'border-red-500';
+            } else {
+                bgColor = 'bg-blue-100';
+                textColor = 'text-blue-800';
+                borderColor = 'border-blue-500';
+            }
+
+            const alertHtml = `
+                <div class="p-3 border-l-4 ${borderColor} ${bgColor} ${textColor} rounded-md shadow-sm opacity-0" style="transition: opacity 0.3s;" role="alert">
+                    <p class="font-medium">${message}</p>
+                </div>
+            `;
+
+            if (alertContainer.timeoutId) {
+                clearTimeout(alertContainer.timeoutId);
+            }
+            alertContainer.innerHTML = '';
+            alertContainer.innerHTML = alertHtml;
+
+            setTimeout(() => {
+                const alertElement = alertContainer.querySelector('div');
+                if (alertElement) alertElement.classList.remove('opacity-0');
+            }, 10);
+
+            if (type !== 'info') {
+                 alertContainer.timeoutId = setTimeout(() => {
+                    const alertElement = alertContainer.querySelector('div');
+                    if (alertElement) {
+                         alertElement.classList.add('opacity-0');
+                         setTimeout(() => {
+                             alertContainer.innerHTML = '';
+                         }, 300);
+                    }
+                }, 5000);
+            }
+        }
+
+        function generateCaptcha() {
+            const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+            let captcha = '';
+            for (let i = 0; i < 6; i++) {
+                captcha += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            currentCaptcha = captcha;
+            document.getElementById('captcha-display').textContent = captcha;
+            document.getElementById('captcha-input').value = '';
+        }
+
+        function setupOTPInputs() {
+            const container = document.getElementById('otp-inputs-container');
+            container.innerHTML = '';
+            for (let i = 0; i < 6; i++) {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.maxLength = 1;
+                input.className = 'otp-input input-style';
+                input.id = `otp-digit-${i}`;
+                input.oninput = (e) => {
+                    if (e.data && i < 5) {
+                        document.getElementById(`otp-digit-${i + 1}`).focus();
+                    } else if (e.inputType === 'deleteContentBackward' && i > 0) {
+                        document.getElementById(`otp-digit-${i - 1}`).focus();
+                    }
+                };
+                container.appendChild(input);
+            }
+        }
+
+        function startTimer(duration) {
+            let timer = duration;
+            const resendBtn = document.getElementById('resend-otp-btn');
+
+            resendBtn.disabled = true;
+            resendBtn.innerHTML = `Resend Code (<span id="otp-timer">${duration}</span>s)`;
+
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                const currentTimerDisplay = document.getElementById('otp-timer');
+                if (currentTimerDisplay) {
+                     currentTimerDisplay.textContent = timer;
+                }
+
+                if (--timer < 0) {
+                    clearInterval(timerInterval);
+                    resendBtn.disabled = false;
+                    resendBtn.innerHTML = "Resend Code";
+                }
+            }, 1000);
+        }
+
+        function showStep(step) {
+            document.getElementById('step-1').classList.toggle('hidden', step !== 1);
+            document.getElementById('step-2').classList.toggle('hidden', step !== 2);
+            alertContainer.innerHTML = '';
+
+            if (step === 1) {
+                 generateCaptcha();
+            } else {
+                 setTimeout(() => {
+                     document.getElementById('otp-digit-0')?.focus();
+                 }, 50);
+            }
+        }
+
+        // --- API Integration Functions ---
+
+        /**
+         * Handles the request for OTP (API call: request_otp).
+         * @param {boolean} isResend - True if called from the resend button.
+         */
+        async function requestOTP(isResend = false) {
+            const emailInput = document.getElementById('email-input');
+            const captchaInput = document.getElementById('captcha-input');
+            const requestBtn = document.getElementById('request-otp-btn');
+
+            alertContainer.innerHTML = '';
+
+            // 1. Frontend Validation (Step 1)
+            if (!emailInput.value || !captchaInput.value) {
+                if (!isResend) {
+                    showAlert('Please fill in both email and captcha fields.', 'error');
+                }
+                return;
+            }
+
+            if (captchaInput.value.toLowerCase() !== currentCaptcha.toLowerCase()) {
+                showAlert('Security Check Failed. Please enter the correct captcha.', 'error');
+                generateCaptcha();
+                return;
+            }
+
+            // 2. Disable buttons and show loading state
+            if (!isResend) {
+                requestBtn.disabled = true;
+                requestBtn.textContent = 'Sending...';
+            }
+
+            // --- API CALL 1: request_otp ---
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        _func: 'request_otp', // Function in User.java
+                        email: emailInput.value
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // Success: Transition to Step 2
+                    document.getElementById('otp-email-display').textContent = emailInput.value;
+                    setupOTPInputs();
+                    startTimer(30); // Start the 30-second resend timer
+                    showStep(2);
+
+                    if (isResend) {
+                         showAlert('New OTP sent successfully. It is valid for 5 minutes.', 'success');
+                    } else {
+                         showAlert('OTP sent successfully. Please enter the code below.', 'success');
+                    }
+
+                    // Log debug OTP if available (as per User.java)
+                    if (data.debug_otp) {
+                        console.log('DEBUG OTP:', data.debug_otp);
+                    }
+                } else {
+                    // API Error (e.g., User not found, Invalid email format)
+                    const errorMsg = data.error_details || data.error_message || 'OTP request failed. User may not be registered.';
+                    showAlert(errorMsg, 'error');
+                }
+            } catch (error) {
+                showAlert('Network error: Could not connect to the server.', 'error');
+            } finally {
+                 // Re-enable button if still on step 1 (only necessary on initial request)
+                if (!isResend) {
+                    requestBtn.disabled = false;
+                    requestBtn.textContent = 'Request OTP';
+                }
+            }
+        }
+
+        // --- Verify OTP & Login Handler (API call: login_otp) ---
+        document.getElementById('login-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            alertContainer.innerHTML = '';
+
+            const verifyBtn = document.getElementById('verify-login-btn');
+            const email = document.getElementById('email-input').value;
+
+            // 1. Collect OTP
+            let enteredOTP = '';
+            for (let i = 0; i < 6; i++) {
+                const otpDigit = document.getElementById(`otp-digit-${i}`).value;
+                if (!otpDigit) {
+                    showAlert('Please enter the complete 6-digit OTP.', 'error');
+                    return;
+                }
+                enteredOTP += otpDigit;
+            }
+
+            // 2. Disable button and show loading state
+            verifyBtn.disabled = true;
+            verifyBtn.textContent = 'Verifying...';
+
+            // --- API CALL 2: login_otp ---
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        _func: 'login_otp', // Function in User.java
+                        email: email,
+                        otp: enteredOTP
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // Success (OTP is valid and not expired)
+                    showAlert('Login Successful! Welcome to TSI Ratings Platform.', 'success');
+                    clearInterval(timerInterval);
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('role', data.role);
+                    if(data.role === 'msme'){
+                        window.location.href = 'msme-dashboard.html';
+                    }else if(data.role === 'auditor'){
+                        window.location.href = 'auditor-assessment-list.html';
+                    }else{
+                        window.location.href = 'fin-partner-dashboard.html';
+                    }
+                } else {
+                    // API Error (e.g., Invalid OTP, OTP expired, User not found)
+                    const errorMsg = data.message || 'Login failed. Invalid or expired OTP.';
+                    showAlert(errorMsg, 'error');
+                }
+            } catch (error) {
+                showAlert('Network error: Could not complete login.', 'error');
+            } finally {
+                // Re-enable button
+                verifyBtn.disabled = false;
+                verifyBtn.textContent = 'Verify & Log In';
+            }
+        });
+
+        // Initialize Captcha and set up initial state
+        window.onload = generateCaptcha;
+    </script>
+</body>
+</html>

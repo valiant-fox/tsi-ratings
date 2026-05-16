@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TSI Ratings | IT Auditor Assessment List</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --tsi-primary: #006A67; /* Primary Dark Teal Color */
+            --background: #f4fbf9; /* Light, clean background */
+            --accent-yellow: #f39c12;
+            --accent-red: #e74c3c;
+        }
+
+        body {
+            background-color: var(--background);
+            font-family: ui-sans-serif, system-ui, sans-serif;
+        }
+
+        .primary-bg { background-color: var(--tsi-primary); }
+        .primary-text { color: var(--tsi-primary); }
+
+        .sidebar {
+            width: 280px;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.05);
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            color: var(--accent-yellow);
+            font-weight: 500;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+        }
+
+        .nav-item:hover {
+            background-color: #f0fdfc;
+            color: #000000;
+        }
+
+        .nav-item.active {
+            color: white;
+            background-color: var(--tsi-primary);
+        }
+
+        .card {
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+        }
+
+        /* Status Tags */
+        .status-tag {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .status-draft { background-color: #fef3c7; color: #d97706; } /* Yellow/Draft */
+        .status-published { background-color: #bfdbfe; color: #1d4ed8; } /* Blue/Published (Anchored) */
+        .status-ready { background-color: #d1fae5; color: #059669; } /* Green/Ready for Publish (Submitted/Audited) */
+        .status-expired { background-color: #fee2e2; color: #ef4444; } /* Red/Expired */
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'tsi-primary': 'var(--tsi-primary)',
+                    }
+                }
+            }
+        }
+
+        const DMA_API_URL = 'api/v1/dma';
+        const USER_API_URL = 'api/v1/user';
+        const AUTH_TOKEN = localStorage.getItem('token');
+
+        // --- UI/Modal Functions ---
+        function openNewDmaModal() {
+            document.getElementById('new-dma-modal').classList.remove('hidden');
+            document.getElementById('msme-email-input').focus();
+        }
+
+        function closeNewDmaModal() {
+            document.getElementById('new-dma-modal').classList.add('hidden');
+            document.getElementById('modal-message').classList.add('hidden');
+        }
+
+        function showModalMessage(message, type = 'error') {
+            const msgEl = document.getElementById('modal-message');
+            msgEl.textContent = message;
+            msgEl.classList.remove('hidden', 'bg-red-100', 'bg-green-100', 'text-red-800', 'text-green-800');
+            if (type === 'success') {
+                msgEl.classList.add('bg-green-100', 'text-green-800');
+            } else {
+                msgEl.classList.add('bg-red-100', 'text-red-800');
+            }
+        }
+
+        /**
+         * Utility to map backend status strings to simplified frontend stages and CSS classes.
+         */
+        function getStatusDetails(status) {
+            const upperStatus = status.toUpperCase();
+
+            if (upperStatus === 'PENDING') {
+                return { name: 'DRAFT', class: 'status-draft', actions: [
+                    { type: 'edit', text: 'Edit Draft', link: (id) => `dma-assessment.html?assessmentId=${id}`, style: 'primary-text' },
+                    { type: 'publish', text: 'Publish', link: (id) => `dma-preview.html?assessmentId=${id}`, style: 'text-green-600' }
+                ] };
+            }
+            if (upperStatus === 'ANCHORED') {
+                return { name: 'PUBLISHED', class: 'status-published', actions: [
+                    { type: 'view', text: 'View Proof', link: (id) => `verify?assessmentId=${id}`, style: 'primary-text' },
+                    { type: 'download', text: 'Download', link: (id) => `download.html?assessmentId=${id}`, style: 'primary-text' }
+                ] };
+            }
+            return { name: upperStatus, class: 'bg-gray-200 text-gray-700', actions: [] };
+        }
+
+         /**
+         * Step 1: Fetches MSME details by email and initiates the DMA.
+         */
+        async function fetchMsmeDetailsAndStartDMA(event) {
+            event.preventDefault();
+
+            const emailInput = document.getElementById('msme-email-input');
+            const email = emailInput.value.trim();
+
+            if (!email) {
+                showModalMessage('Please enter a valid MSME Email.');
+                return;
+            }
+
+            const startDmaBtn = document.getElementById('start-dma-btn');
+            startDmaBtn.disabled = true;
+            startDmaBtn.textContent = 'Searching...';
+
+            showModalMessage('Searching for registered MSME...', 'info'); // Use info type which usually is blue/default
+
+            try {
+                // --- 1. CALL JAVA API: Get MSME by Email (Simulated endpoint) ---
+                const response = await fetch(USER_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
+                    body: JSON.stringify({
+                        _func: 'get_msme_by_email',
+                        email: email
+                    })
+                });
+
+                const data = await response.json();
+                console.log(data);
+                if(data.success){
+                    const msmeId = data.msmeId;
+                    const msmeName = data.companyName;
+                    console.log(msmeId);
+                    showModalMessage(`MSME Found: ${msmeName}. Redirecting to assessment...`, 'success');
+
+                    // --- 2. Dispatch to DMA Assessment Screen ---
+                    const url = `dma-assessment.html?msmeId=${msmeId}&msmeName=${encodeURIComponent(msmeName)}`;
+                    window.location.href = url;
+                }
+                else{
+                    showModalMessage(data.message || `MSME not found or registration incomplete for: ${email}.`);
+                    return;
+                }
+            } catch (e) {
+                showModalMessage('Network error or invalid API response.', 'error');
+                console.error("Error fetching MSME details:", e);
+            } finally {
+                startDmaBtn.disabled = false;
+                startDmaBtn.textContent = 'Start DMA';
+            }
+        }
+
+       /**
+         * Generates the appropriate action links based on assessment status.
+         */
+        function generateActionLink(assessment) {
+            const details = getStatusDetails(assessment.status);
+            let html = '';
+
+            details.actions.forEach(action => {
+                const link = action.link(assessment.assessmentId, assessment.msmeId);
+                const separator = html ? ' | ' : '';
+
+                // For PENDING status, use a | separator for Edit and Publish
+                html += `${separator}<a href="${link}" class="${action.style} hover:underline font-medium">${action.text}</a>`;
+            });
+
+            return html;
+        }
+
+        /**
+         * Renders the assessment list table dynamically.
+         */
+        function renderAssessmentList(assessments) {
+            const tbody = document.getElementById('assessment-list-body');
+            tbody.innerHTML = '';
+
+            if (!assessments || assessments.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">No assessments found. Start a New DMA to begin.</td></tr>`;
+                return;
+            }
+
+            assessments.forEach(assessment => {
+                const row = document.createElement('tr');
+                const scoreDisplay = assessment.finalTsiScore ? parseFloat(assessment.finalTsiScore).toFixed(2) : '—';
+                const statusDetails = getStatusDetails(assessment.status);
+
+                const displayId = `TSI-DMA-${assessment.assessmentId}`;
+
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${displayId}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${assessment.companyName || 'N/A'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold ${scoreDisplay !== '—' ? 'text-tsi-primary' : 'text-gray-500'}">${scoreDisplay}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="status-tag ${statusDetails.class}">${statusDetails.name}</span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right">
+                        ${generateActionLink(assessment)}
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        /**
+         * Fetches the list of assessments from the backend.
+         */
+        async function fetchAssessmentData() {
+            const tbody = document.getElementById('assessment-list-body');
+            tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">Loading assessment records...</td></tr>`;
+
+            try {
+                const response = await fetch(DMA_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify({
+                        _func: 'get_assessment_list'
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success && data.data) {
+                    renderAssessmentList(data.data);
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-red-500">Error loading data: ${data.error_message || 'Unknown API Error'}</td></tr>`;
+                }
+            } catch (error) {
+                console.error('Fetch error:', error);
+                tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-red-500">Network Error. Could not connect to the server.</td></tr>`;
+            }
+        }
+
+        window.onload = fetchAssessmentData;
+    </script>
+</head>
+<body class="flex h-screen">
+
+<!-- Modal for New DMA -->
+<div id="new-dma-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center modal-backdrop">
+    <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg p-6">
+        <div class="flex justify-between items-center border-b pb-3 mb-4">
+            <h3 class="text-xl font-bold primary-text">Start New DMA Assessment</h3>
+            <button onclick="closeNewDmaModal()" class="text-gray-400 hover:text-gray-600">&times;</button>
+        </div>
+
+        <form onsubmit="fetchMsmeDetailsAndStartDMA(event)">
+            <div class="mb-4">
+                <label for="msme-email-input" class="block text-sm font-medium text-gray-700 mb-2">
+                    Enter MSME Owner Email (Must be Registered)
+                </label>
+                <input type="email" id="msme-email-input" required placeholder="msme@company.com"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-tsi-primary focus:border-tsi-primary">
+            </div>
+
+            <div id="modal-message" class="hidden p-3 mb-4 text-sm rounded-lg"></div>
+
+            <div class="flex justify-end space-x-3">
+                <button type="button" onclick="closeNewDmaModal()"
+                        class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100">
+                    Cancel
+                </button>
+                <button type="submit" id="start-dma-btn"
+                        class="primary-bg text-white px-4 py-2 rounded-lg font-semibold hover:bg-opacity-90 transition">
+                    Start DMA
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<aside class="sidebar primary-bg flex flex-col p-4 text-white">
+    <div class="mb-8 p-2">
+        <span class="text-xl font-bold ml-3">TSI Ratings</span>
+    </div>
+
+    <nav class="flex-grow">
+        <a href="#" class="nav-item">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            Dashboard
+            <span style="color: red; font-size: 10px; margin-left: 8px; font-weight: normal;">Coming Soon</span>
+        </a>
+        <a href="#" class="nav-item active">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2z"/></svg>
+            Assessment History
+        </a>
+        <a href="#" class="nav-item">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/></svg>
+            Settings
+            <span style="color: red; font-size: 10px; margin-left: 8px; font-weight: normal;">Coming Soon</span>
+        </a>
+    </nav>
+
+    <div class="mt-8">
+        <a href="login.html" class="nav-item bg-red-600 hover:bg-red-700 text-white rounded-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M10 3H6a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+            Logout
+        </a>
+    </div>
+</aside>
+
+<main class="flex-1 overflow-y-auto p-8">
+
+    <div class="flex justify-between items-center mb-8">
+        <header>
+            <h1 class="text-3xl font-bold text-gray-800">Assessment History & Status</h1>
+            <p class="text-gray-500">View all Digital Maturity Assessments (DMA) assigned and completed.</p>
+        </header>
+
+        <a href="#" onclick="openNewDmaModal()" class="primary-bg text-white px-6 py-2 rounded-lg font-semibold shadow-md hover:opacity-90 transition duration-150 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New DMA
+        </a>
+<!--
+        <header>
+            <div>
+            <h1 class="text-3xl font-bold text-gray-800">Assessment History & Status</h1>
+            <p class="text-gray-500">View all Digital Maturity Assessments (DMA) assigned and completed.</p>
+            <button onclick="openNewDmaModal()"
+                    class="primary-bg text-white px-6 py-3 rounded-lg font-semibold hover:bg-opacity-90 transition shadow-md">
+                <i class="fas fa-plus mr-2"></i> New DMA
+            </button>
+            </div>
+        </header>-->
+    </div>
+
+    <section class="mb-10">
+        <h2 class="text-2xl font-semibold text-gray-800 mb-4">Assessment Records</h2>
+        <div class="card overflow-hidden">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                <tr>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assessment ID</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company Name</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">TSI Rating</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200" id="assessment-list-body">
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+</main>
+
+</body>
+</html>

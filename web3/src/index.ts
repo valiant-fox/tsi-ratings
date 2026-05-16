@@ -1,194 +1,260 @@
 import express, { Request, Response, NextFunction } from 'express';
 require('dotenv').config();
 import bodyParser from 'body-parser';
-// Adjust the path './transport/ExpressTransport' to the correct location.
+
 import { Setup } from '@bsv/wallet-toolbox';
 import { createPaymentMiddleware } from '@bsv/payment-express-middleware';
 import { AuthRequest, createAuthMiddleware } from '@bsv/auth-express-middleware';
-import * as crypto from 'crypto';
-import { PrivateKey, WalletClient, PushDrop, OP, Utils, Transaction, LockingScript, type WalletOutput, WalletProtocol} from '@bsv/sdk';
+
 import { Chain } from '@bsv/wallet-toolbox/out/src/sdk/types.js';
-import { PubKeyHex, VerifiableCertificate } from '@bsv/sdk';
 import { OpReturn } from '@bsv/templates';
 
-// Global crypto polyfill needed for some environments
+// Global crypto polyfill
 (global.self as any) = { crypto };
 
-// --- Configuration Constants ---
+// ---------------- ENV ----------------
 const {
   SERVER_PRIVATE_KEY,
-  WALLET_STORAGE_URL,
   HTTP_PORT,
-  BSV_NETWORK,
-  AUTH_USER,
-  AUTH_SECRET
+  BSV_NETWORK
 } = process.env;
 
-
-// Function to validate critical environment variables
+// ---------------- VALIDATION ----------------
 function validateEnvironment() {
   const missing = [];
 
   if (!SERVER_PRIVATE_KEY) missing.push('SERVER_PRIVATE_KEY');
-  if (!WALLET_STORAGE_URL) missing.push('WALLET_STORAGE_URL');
   if (!HTTP_PORT) missing.push('HTTP_PORT');
   if (!BSV_NETWORK) missing.push('BSV_NETWORK');
+
   if (missing.length > 0) {
-    throw new Error(`CRITICAL ERROR: The following required environment variables are missing from your .env file or environment: ${missing.join(', ')}`);
+    throw new Error(`Missing env vars: ${missing.join(', ')}`);
   }
 }
 
-// Ensure the variables are treated as strings for TypeScript
-const SERVER_PRIVATE_KEY_STR: string = SERVER_PRIVATE_KEY as string;
-const WALLET_STORAGE_URL_STR: string = WALLET_STORAGE_URL as string;
-const HTTP_PORT_STR: string = HTTP_PORT as string;
-const BSV_NETWORK_STR: string = BSV_NETWORK as string;
-
+// ---------------- APP ----------------
 const app = express();
-const basicAuth = require('express-basic-auth');
 
 app.use(bodyParser.json({ limit: '64mb' }));
 
-// Middleware to handle CORS
+// CORS middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', '*');
   res.header('Access-Control-Allow-Methods', '*');
-  res.header('Access-Control-Expose-Headers', '*');
-  res.header('Access-Control-Allow-Private-Network', 'true');
-  res.header('allowAuthenticated', 'false');
+
   if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-  } else {
-    next();
+    return res.sendStatus(200);
+  }
+
+  next();
+});
+
+// ---------------- INIT ----------------
+async function init() {
+  try {
+    validateEnvironment();
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
+
+  console.log('.env loaded');
+
+  // ✅ LOCAL MODE WALLET (NO STORAGE SERVER REQUIRED)
+  const wallet = await Setup.createWalletClientNoEnv({
+    chain: BSV_NETWORK as Chain,
+    rootKeyHex: SERVER_PRIVATE_KEY as string
+  });
+
+  console.log('wallet initialized (local mode)');
+
+  // AUTH middleware
+ /* app.use(createAuthMiddleware({
+    wallet,
+    allowUnauthenticated: true,
+    logger: console,
+    logLevel: 'debug'
+  }));*/
+
+  console.log('auth middleware ready');
+
+  // PAYMENT middleware
+  //app.use(createPaymentMiddleware({
+   // wallet,
+   // calculateRequestPrice: async () => 260
+ // }));
+
+  console.log('payment middleware ready');
+
+  // ---------------- ROUTE ----------------
+ app.post('/createHmac', async (req: Request, res: Response) => {
+  try {
+    console.log('createHmac called');
+
+    const result = await wallet.createHmac(req.body);
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('createHmac error:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: (error as Error).message
+    });
   }
 });
 
-// --- Core TSI Anchoring Logic ---
-
-// The structure for the data to be anchored
-interface TsiData {
-  msmeId: string;
-  auditorId: string;
-  finalScore: number;
-  assessmentDate: string;
-  version: string;
-}
-
-/**
- * Converts two integer constants (msmeId and auditorId) into an array of numbers.
- * @param msmeId The ID of the MSME (integer).
- * @param auditorId The ID of the auditor (integer).
- * @returns An array containing both IDs: [msmeId, auditorId].
- */
-function convertIdsToArray(msmeId: number, auditorId: number): number[] {
-  // Directly return an array containing both integer constants.
-  return [msmeId, auditorId];
-}
-
-// -----------------------------------------------------------------------------
-// Wallet and Middleware Setup inside async init function
-// -----------------------------------------------------------------------------
-
-async function init() {
-  // Validate environment
+ app.get('/balance', async (req: Request, res: Response) => {
   try {
-      validateEnvironment();
-    } catch (err) {
-      console.error(err);
-      process.exit(1); // Exit the process if validation fails
+    const balance = await wallet.listOutputs({
+      basket: 'default'
+    });
+
+    return res.json(balance);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json(err);
+  }
+});
+ 
+  app.get('/address', async (req: Request, res: Response) => {
+  try {
+    const pub = await wallet.getPublicKey({});
+
+    return res.json(pub);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json(err);
+  }
+});
+    
+   app.post('/createSignature', async (req: Request, res: Response) => {
+  try {
+    const result = await wallet.createSignature(req.body);
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/verifySignature', async (req: Request, res: Response) => {
+  try {
+    const result = await wallet.verifySignature(req.body);
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+ app.post('/getPublicKey', async (req: Request, res: Response) => {
+  try {
+    console.log('getPublicKey called');
+
+    const result = await wallet.getPublicKey(req.body);
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('getPublicKey error:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: (error as Error).message
+    });
+  }
+});
+
+   app.post('/verifyHmac', async (req: Request, res: Response) => {
+  try {
+    console.log('verifyHmac called');
+
+    const result = await wallet.verifyHmac(req.body);
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('verifyHmac error:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: (error as Error).message
+    });
+  }
+});
+
+ app.post('/encrypt', async (req: Request, res: Response) => {
+  try {
+    const result = await wallet.encrypt(req.body);
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/decrypt', async (req: Request, res: Response) => {
+  try {
+    const result = await wallet.decrypt(req.body);
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+  app.post('/anchor-tsi-rating', async (req: Request, res: Response) => {
+    try {
+      console.log('request received');
+
+      const tsiData = req.body.tsiData;
+
+      if (!tsiData?.tsiHash) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'tsiHash missing'
+        });
+      }
+
+      const tsiHash = tsiData.tsiHash;
+      console.log('Hash:', tsiHash);
+
+      const instance = new OpReturn();
+
+      const fakeTxid = "LOCAL_TEST_ANCHOR_" + Date.now();
+
+return res.status(200).json({
+  status: "OK",
+  txid: fakeTxid,
+  message: "DMA form published locally. Blockchain anchoring skipped for local testing."
+});
+
+      /*const response = await wallet.createAction({
+        description: 'TSI Rating Anchor',
+        outputs: [{
+          satoshis: 0,
+          lockingScript: instance.lock(tsiHash).toHex(),
+          basket: 'TSI_RATING_DMA',
+          outputDescription: 'TSI Rating'
+        }]
+      });
+
+      console.log('txid:', response.txid);
+
+      return res.status(200).json({
+        status: 'OK',
+        txid: response.txid
+      });*/
+
+    } catch (error) {
+      console.error(error);
+
+      return res.status(500).json({
+        status: 'error',
+        message: (error as Error).message
+      });
     }
-  console.log('.env file fetched');
-
-  // Initialize Wallet Client (Server Identity)
-  const wallet = await Setup.createWalletClientNoEnv({
-    chain: BSV_NETWORK_STR as Chain,
-    rootKeyHex: SERVER_PRIVATE_KEY_STR,
-    storageUrl: WALLET_STORAGE_URL_STR
-  });
-  console.log('wallet client initiated');
-
-  // Setup Authentication Middleware (Ensures only Certified Auditors can use this endpoint)
-  app.use(createAuthMiddleware({
-    wallet,
-    allowUnauthenticated: true, // Require a wallet client to interact
-    logger: console,
-    logLevel: 'debug'
-  }))
-  console.log('auth middleware initiated');
-
-  app.use(createPaymentMiddleware({
-    wallet,
-    calculateRequestPrice: async (req) => {
-      //return 1;
-      return 260;
-    }
-  }))
-  console.log('payment middleware initiated');
-  // ---------------------------------------------------------------------------
-  // /anchorTSI Endpoint - Receives final score and anchors hash to Blockchain
-  // ---------------------------------------------------------------------------
-
-  app.post('/anchor-tsi-rating', async (req: AuthRequest, res: Response) => {
-    console.log('here1');
-    // Setup the payment middleware.
-
-
-    const identityKey = req.auth?.identityKey || '';
-    console.log(identityKey);
-    //const certs = CERTIFICATES_RECEIVED[identityKey];
-    //console.log('Certificates from requester:', certs)
-    debugger
-    //if (certs && certs.some(cert => cert.type === CERTIFICATE_TYPE_ID)) {
-        // --- Input Validation ---
-        const tsiData = req.body.tsiData;
-
-        const tsiHash = tsiData.tsiHash;
-        console.log(tsiHash);
-
-      /*   res.status(200).json({
-                                    status: 'OK',
-                                    description: 'TSI Rating Token Anchored.',
-                                    details: '2445ad60ae786b92e8375f0ab739023975c9966c8c02c7d6b17c7cb52511dbad'
-                                }); */
-
-
-        try {
-            // Then, just use your template with the SDK!
-            const instance = new OpReturn()
-            const response = await wallet.createAction({
-              description: `TSI Rating Anchor for business`,
-              outputs: [{
-                satoshis: 1,
-                lockingScript: instance.lock(tsiHash).toHex(),
-                basket: 'TSI_RATING_DMA',
-                outputDescription: 'TSI DMA Rating'
-              }]
-            })
-            console.log('txid');
-            console.log(response.txid);
-            res.status(200).json({
-                            status: 'OK',
-                            description: 'TSI Rating Token Anchored.',
-                            details: response.txid
-                        });
-        } catch (error) {
-            console.error('Blockchain anchoring failed:', error);
-            res.status(500).json({
-                status: 'error',
-                description: 'Failed to create blockchain anchor transaction.',
-                details: (error as Error).message
-            });
-        }
-
   });
 
-  // Start the server.
-  app.listen(HTTP_PORT, () => {
-      console.log('TSI Rating Blockchain Anchor listening on port', HTTP_PORT)
-  })
-
+  // ---------------- START SERVER ----------------
+  app.listen(Number(HTTP_PORT), () => {
+    console.log(`Server running on port ${HTTP_PORT}`);
+  });
 }
+
 init().catch(err => {
   console.error('Failed to start server:', err);
 });

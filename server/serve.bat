@@ -36,5 +36,5 @@ set POSTGRES_USER=%POSTGRES_USER%
 set POSTGRES_PASSWD=%POSTGRES_PASSWD%
 set JETTY_HOME=%JETTY_HOME%
 set JETTY_BASE=%JETTY_BASE%
-copy %TSI_RATINGS_HOME%\target\tsi_ratings.war %JETTY_BASE%\webapps\ROOT.war >NUL
-java -jar %JETTY_HOME%/start.jar
+copy "C:\Users\HARSHINI\tsi-ratings\target\tsi_ratings.war" "C:\Users\HARSHINI\tsi-ratings\server\webapps\ROOT.war" >NUL
+java -jar "C:\jetty\start.jar"

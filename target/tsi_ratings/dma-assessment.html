@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TSI Ratings | Digital Maturity Assessment</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --tsi-primary: #006A67; /* Primary Dark Teal Color */
+            --background: #f4fbf9; /* Light, clean background */
+            --border-color: #d1d5db; /* Light gray for borders */
+        }
+
+        body {
+            background-color: var(--background);
+            font-family: ui-sans-serif, system-ui, sans-serif;
+        }
+
+        .primary-bg { background-color: var(--tsi-primary); }
+        .primary-text { color: var(--tsi-primary); }
+
+        .card {
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+            border: 1px solid var(--border-color);
+        }
+
+        .radio-option:checked {
+            background-color: var(--tsi-primary);
+            border-color: var(--tsi-primary);
+        }
+
+        .radio-label:has(.radio-option:checked) {
+            background-color: #e0f2f1; /* Light teal background */
+            border-color: var(--tsi-primary);
+            color: var(--tsi-primary);
+            font-weight: 600;
+        }
+
+        .sticky-footer {
+            box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'tsi-primary': 'var(--tsi-primary)',
+                    }
+                }
+            }
+        }
+
+        const AUTH_TOKEN = localStorage.getItem('token');
+        // --- API Endpoint Definition ---
+        const DMA_API_URL = 'api/v1/dma';
+
+        // --- Global State & Placeholders ---
+        // Get assessmentId from URL parameter (e.g., ?assessmentId=8012)
+        const urlParams = new URLSearchParams(window.location.search);
+        const CURRENT_ASSESSMENT_ID = parseInt(urlParams.get('assessmentId')) || 0;
+
+        // Placeholder values for display (Should be fetched with saved data)
+        const CURRENT_MSME_NAME = urlParams.get('msmeName');
+        const CURRENT_MSME_ID = parseInt(urlParams.get('msmeId')) || 0;
+        const CURRENT_AUDITOR_NAME = "IT Auditor";
+        const CURRENT_AUDITOR_ID = 8;
+
+        let dmaQuestionnaire = null;
+        let assessmentResults = {}; // Will hold Q-ID -> Value map
+        let totalQuestionsCount = 0;
+        let lastCalculatedScore = null;
+        let isFinalized = false;
+
+        // --- Utility Functions ---
+
+        /**
+         * Shows a message to the user in the result area.
+         */
+        function showResultMessage(message, type = 'default') {
+            const resultElement = document.getElementById('result-message');
+            resultElement.classList.remove('hidden', 'bg-red-100', 'text-red-600', 'bg-green-100', 'text-green-600', 'bg-blue-100', 'text-blue-600');
+            resultElement.classList.add('transition-opacity', 'duration-300');
+
+            if (type === 'error') {
+                resultElement.classList.add('bg-red-100', 'text-red-600');
+            } else if (type === 'success') {
+                resultElement.classList.add('bg-green-100', 'text-green-600');
+            } else { // info/default
+                resultElement.classList.add('bg-blue-100', 'text-blue-600');
+            }
+
+            resultElement.textContent = message;
+        }
+
+        /**
+         * Retrieves data required for API calls.
+         */
+        function getAssessmentPayload(currentScore) {
+            const qualitativeNotes = document.getElementById('qualitative-notes').value;
+
+            const payload = {
+                assessmentId: CURRENT_ASSESSMENT_ID,
+                msmeId: CURRENT_MSME_ID,
+                auditorId: CURRENT_AUDITOR_ID,
+                qualitativeNotes: qualitativeNotes,
+                finalTsiScore: currentScore,
+                assessmentDetailJson: {
+                    version: dmaQuestionnaire ? dmaQuestionnaire.version : 'v1.0',
+                    results: assessmentResults
+                }
+            };
+
+            if (dmaQuestionnaire) {
+                payload.version = dmaQuestionnaire.version;
+            }
+
+            return payload;
+        }
+
+        // --- Core Validation Functions ---
+
+        /**
+         * Checks if all questions have been answered.
+         */
+        function areAllQuestionsAnswered() {
+            if (!dmaQuestionnaire) return false;
+
+            let answeredQuestions = Object.keys(assessmentResults).length;
+
+            if (answeredQuestions !== totalQuestionsCount) {
+                showResultMessage(`Progress: ${answeredQuestions}/${totalQuestionsCount} questions answered. Full score calculation requires all questions to be answered.`, 'info');
+                return false;
+            }
+
+            return true;
+        }
+
+        // --- Data Fetching and Pre-population ---
+
+        /**
+         * Fetches previously saved answers and qualitative input for editing.
+         */
+        async function fetchSavedAssessmentData() {
+            showResultMessage(`Loading saved data for Assessment ID: ${CURRENT_ASSESSMENT_ID}...`, 'info');
+
+            try {
+                const response = await fetch(DMA_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify({
+                        _func: 'get_dma_assessment_details', // Assumed backend function
+                        assessmentId: CURRENT_ASSESSMENT_ID
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success && data.data) {
+                    const savedData = data.data;
+
+                    // 1. Update global state with saved data
+                    if (savedData.assessmentDetailJson && savedData.assessmentDetailJson.results) {
+                        assessmentResults = savedData.assessmentDetailJson.results;
+                    }
+                    if (savedData.finalTsiScore) {
+                        lastCalculatedScore = savedData.finalTsiScore;
+                    }
+                    showResultMessage(`Assessment data loaded. Make revisions.`);
+                } else if (response.status === 404) {
+                    showResultMessage('Assessment not found. Starting a new assessment.', 'info');
+                } else {
+                    showResultMessage('Failed to load saved assessment data.', 'error');
+                }
+            } catch (error) {
+                console.error('Fetch saved data error:', error);
+                showResultMessage('Network error during data retrieval.', 'error');
+            }
+        }
+
+
+        // --- API Integration (CRUD Operations) ---
+
+        async function fetchQuestionnaire() {
+            if (CURRENT_ASSESSMENT_ID !== 0) {
+                fetchSavedAssessmentData();
+            }
+
+            showResultMessage('Loading questionnaire...', 'info');
+
+            try {
+                const response = await fetch(DMA_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify({
+                        _func: 'get_dma_questionnaire',
+                        version: 'v1'
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success && data.data) {
+                    dmaQuestionnaire = data.data;
+                    renderAssessmentForm(dmaQuestionnaire);
+                    showResultMessage('Questionnaire template loaded.', 'info');
+                } else {
+                    const errorMsg = data.error_details || data.error_message || 'Failed to retrieve questionnaire template.';
+                    showResultMessage(errorMsg, 'error');
+                }
+            } catch (error) {
+                console.error('Fetch error:', error);
+                showResultMessage('Network error. Could not connect to DMA service.', 'error');
+            }
+        }
+
+        /**
+         * Saves the current assessment status, score, and qualitative input (API: saveassessment).
+         */
+        async function saveAssessment(isReview = false) {
+            if (isFinalized) return;
+
+            const saveButton = document.getElementById('save-assessment-btn');
+
+            // Gating check for review
+            if (isReview && !areAllQuestionsAnswered()) {
+                return;
+            }
+
+            // 2. Prepare payload
+            const payload = getAssessmentPayload(lastCalculatedScore);
+
+            saveButton.disabled = true;
+            saveButton.textContent = isReview ? 'Reviewing...' : 'Saving...';
+            showResultMessage(isReview ? 'Requesting final score from backend...' : 'Saving assessment progress...', 'info');
+
+            try {
+                const response = await fetch(DMA_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify({
+                        _func: 'save_assessment',
+                        ...payload
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    const newScore = data.data.finalTsiScore;
+                    lastCalculatedScore = newScore;
+
+                    if (isReview) {
+                         showResultMessage(`Official Final Score: ${newScore}%. Ready for Preview and Finalization.`, 'success');
+                    } else {
+                         showResultMessage(`Assessment progress saved.`, 'success');
+                    }
+                } else {
+                    const errorMsg = data.error_details || data.error_message || 'Failed to save/review assessment. Check network.';
+                    showResultMessage(errorMsg, 'error');
+                }
+            } catch (error) {
+                console.error('Save error:', error);
+                showResultMessage('Network error. Could not connect to save assessment.', 'error');
+            } finally {
+                saveButton.disabled = false;
+                saveButton.textContent = 'Save Assessment';
+            }
+        }
+
+        function reviewFinalScore() {
+            saveAssessment(true);
+        }
+
+        /**
+         * Renders the entire assessment form based on the fetched dmaData JSON.
+         */
+        function renderAssessmentForm(data) {
+            const formContainer = document.getElementById('assessment-form-container');
+            formContainer.innerHTML = '';
+            totalQuestionsCount = 0;
+
+            // Set header info
+            document.getElementById('questionnaire-title').textContent = data.questionnaireTitle;
+            document.getElementById('header-info').innerHTML = `MSME: <strong>${CURRENT_MSME_NAME}</strong> | Assessor: <strong>${CURRENT_AUDITOR_NAME}</strong> | Assessment ID: <strong>${CURRENT_ASSESSMENT_ID}</strong> | Version: <strong>${data.version}</strong>`;
+
+            data.sections.forEach((section, sectionIndex) => {
+                const sectionDiv = document.createElement('div');
+                sectionDiv.className = 'mb-10 p-6 card';
+
+                const sectionTitle = document.createElement('h2');
+                sectionTitle.className = 'text-xl font-bold primary-text mb-6 pb-2 border-b border-gray-200';
+                sectionTitle.textContent = `${section.sectionId}. ${section.sectionTitle}`;
+                sectionDiv.appendChild(sectionTitle);
+
+                section.questions.forEach((question, questionIndex) => {
+                    totalQuestionsCount++;
+
+                    // Look up the previously saved value for this question
+                    const savedValue = assessmentResults[question.questionId];
+
+                    const questionDiv = document.createElement('div');
+                    questionDiv.className = 'mb-6 p-4 border rounded-lg bg-gray-50';
+
+                    const questionText = document.createElement('p');
+                    questionText.className = 'text-base font-semibold text-gray-800 mb-3';
+                    questionText.textContent = `${question.questionId}. ${question.questionText}`;
+                    questionDiv.appendChild(questionText);
+
+                    const optionsDiv = document.createElement('div');
+                    optionsDiv.className = 'flex flex-wrap gap-3';
+
+                    question.options.forEach(option => {
+                        const label = document.createElement('label');
+                        label.className = 'radio-label flex-1 flex items-center p-3 text-sm text-gray-700 bg-white border border-gray-300 rounded-md cursor-pointer transition-colors duration-150 ease-in-out hover:border-tsi-primary min-w-[200px] sm:min-w-0';
+                        label.setAttribute('for', `${question.questionId}-${option.value}`);
+
+                        const input = document.createElement('input');
+                        input.type = 'radio';
+                        input.name = question.questionId;
+                        input.id = `${question.questionId}-${option.value}`;
+                        input.value = option.value;
+                        input.className = 'radio-option h-4 w-4 text-tsi-primary border-gray-300 mr-2 focus:ring-tsi-primary';
+
+                        // --- AUTOFILL LOGIC ADDED HERE ---
+                        console.log(savedValue);
+                        if (savedValue !== undefined && parseInt(input.value) === savedValue) {
+                            input.checked = true;
+                        }
+
+                        input.addEventListener('change', (e) => {
+                            assessmentResults[question.questionId] = parseInt(e.target.value);
+                            document.getElementById('result-message').classList.add('hidden');
+                        });
+
+                        label.appendChild(input);
+                        label.appendChild(document.createTextNode(option.text));
+                        optionsDiv.appendChild(label);
+                    });
+
+                    questionDiv.appendChild(optionsDiv);
+                    sectionDiv.appendChild(questionDiv);
+                });
+
+                formContainer.appendChild(sectionDiv);
+            });
+
+            // Append Qualitative Input Section (Textarea population is handled by prepopulateForm() later)
+            const qualitativeSection = document.createElement('div');
+            qualitativeSection.className = 'mb-10 p-6 card';
+            qualitativeSection.innerHTML = `
+                <h2 class="text-xl font-bold primary-text mb-6 pb-2 border-b border-gray-200">
+                    Auditor's Qualitative Input
+                </h2>
+                <p class="text-sm text-gray-700 mb-3">Provide your summary, observations, and justification for the scores. This will be anchored alongside the quantitative data.</p>
+                <textarea id="qualitative-notes" rows="6" class="w-full p-3 border border-gray-300 rounded-lg focus:border-tsi-primary focus:ring focus:ring-tsi-primary focus:ring-opacity-50" placeholder="Enter notes here..."></textarea>
+            `;
+            formContainer.appendChild(qualitativeSection);
+        }
+
+        // Run the rendering function when the window loads
+        window.onload = fetchQuestionnaire;
+    </script>
+</head>
+<body class="p-8">
+
+<div class="max-w-4xl mx-auto">
+    <header class="text-center mb-8">
+        <div class="flex items-center justify-center mb-4">
+            <h1 class="text-4xl font-extrabold primary-text">TSI Ratings</h1>
+        </div>
+        <p class="text-xl font-semibold text-gray-700 mb-1" id="questionnaire-title">Digital Maturity Assessment (DMA)</p>
+        <p class="text-sm text-gray-500" id="header-info">MSME: <strong>Shakti Textiles & Exports</strong> | Assessor: <strong>Alex Johnson</strong></p>
+    </header>
+
+    <main>
+        <form id="dma-form" onsubmit="event.preventDefault();">
+            <div id="assessment-form-container">
+                <div class="text-center p-12 card text-gray-500 font-semibold" id="loading-message">
+                    Loading Digital Maturity Questionnaire... Please wait.
+                </div>
+            </div>
+
+            <div class="sticky-footer sticky bottom-0 p-4 mt-6 card flex justify-between items-center z-10">
+                <div id="result-message" class="text-lg font-bold hidden px-4 py-2 rounded-lg transition-opacity duration-300">
+                </div>
+
+                <div class="flex space-x-4 ml-auto">
+                    <a href="auditor-assessment-list.html"
+                       class="px-6 py-3 border border-gray-400 text-gray-700 bg-white rounded-lg font-semibold hover:bg-gray-100 transition duration-200 flex items-center">
+                        ← Back to List
+                    </a>
+
+                    <button type="button" id="save-assessment-btn" onclick="saveAssessment(false)"
+                            class="px-6 py-3 border border-tsi-primary bg-white text-tsi-primary rounded-lg font-semibold hover:bg-tsi-primary hover:text-white transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Save Assessment
+                    </button>
+                </div>
+            </div>
+        </form>
+    </main>
+</div>
+
+</body>
+</html>

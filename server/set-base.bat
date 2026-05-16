@@ -26,4 +26,4 @@ for /f "tokens=1* delims==" %%A in (.env) do (
     )
 )
 
-java -jar %JETTY_HOME%/start.jar --add-modules=http,jdbc,jndi,ee10-deploy
+java -jar "C:\jetty\start.jar" --add-modules=http,jdbc,jndi,ee10-deploy
