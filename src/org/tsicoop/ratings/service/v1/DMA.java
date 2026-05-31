@@ -13,10 +13,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.Iterator;
-import java.util.UUID; // Used for simulating blockchain TX IDs
 
 /**
  * DMAService class handles all operations related to the Digital Maturity Assessment (DMA).
@@ -46,6 +44,10 @@ public class DMA implements Action {
             String txId = (String) input.get("txId");
             String tsiHash = (String) input.get("tsiHash");
 
+            if (func == null || func.isEmpty()) {
+                func = req.getParameter("_func");
+            }
+
             if (func == null || func.trim().isEmpty()) {
                 OutputProcessor.errorResponse(res, HttpServletResponse.SC_BAD_REQUEST, "Bad Request", "Missing required '_func'.", req.getRequestURI());
                 return;
@@ -69,10 +71,35 @@ public class DMA implements Action {
                     OutputProcessor.send(res, HttpServletResponse.SC_OK, output);
                     break;
 
+                case "get_cma_questionnaire":
+    output = getCmaQuestionnaire();
+    OutputProcessor.send(res, HttpServletResponse.SC_OK, output);
+    break;
+     
+                case "get_cma_status":
+                    output = getCmaStatus();
+                    OutputProcessor.send(res, HttpServletResponse.SC_OK, output);
+                    break;
+
                 case "save_assessment":
                     // Auditor saves progress, score, and qualitative input.
                     output = saveAssessment(assessmentId, auditorId, input);
                     OutputProcessor.send(res, HttpServletResponse.SC_OK, output); // Use SC_OK for save/update
+                    break;
+
+                case "save_cma_assessment":
+                    output = saveCmaAssessment(assessmentId, auditorId, input);
+                    OutputProcessor.send(res, HttpServletResponse.SC_OK, output);
+                    break;
+
+                case "get_cma_assessment_details":
+                    output = getCmaAssessmentDetails(assessmentId, auditorId);
+                    OutputProcessor.send(res, HttpServletResponse.SC_OK, output);
+                    break;
+
+                case "publish_cma_assessment":
+                    output = publishCmaAssessment(assessmentId, auditorId);
+                    OutputProcessor.send(res, HttpServletResponse.SC_OK, output);
                     break;
 
                 case "finalize_assessment":
@@ -81,6 +108,8 @@ public class DMA implements Action {
                     output =  updateAnchorRecord(assessmentId, txId, tsiHash, "DMA");
                     OutputProcessor.send(res, HttpServletResponse.SC_ACCEPTED, output);
                     break;
+
+
 
                 case "get_assessment_list":
                     output = getAssessmentList(input, auditorId);
@@ -91,6 +120,8 @@ public class DMA implements Action {
                     output = getAssessmentDetails(assessmentId);
                     OutputProcessor.send(res, HttpServletResponse.SC_OK, output);
                     break;
+
+
 
                 case "validate_assessment":
                     output = validateAssessment(txId, tsiHash);
@@ -142,11 +173,13 @@ public class DMA implements Action {
 
             while (rs.next()) {
                 JSONObject assessment = new JSONObject();
+               
 
                 // Fields from DMA_Assessment and MSME
                 assessment.put("assessmentId", rs.getLong("assessmentId"));
                 assessment.put("msmeId", rs.getLong("msmeId"));
                 assessment.put("companyName", rs.getString("companyName"));
+                assessment.put("type", "DMA");
                 assessment.put("status", rs.getString("status"));
 
                 // Conditional Fields
@@ -158,6 +191,33 @@ public class DMA implements Action {
 
                 assessmentArray.add(assessment);
             }
+
+            pool.cleanup(rs, pstmt, null);
+rs = null;
+pstmt = null;
+
+String cmaSql = "SELECT \"assessmentId\", \"finalCmaScore\", status, \"completionDate\", \"assessmentDetailJson\" " +
+        "FROM \"cma_assessment\" WHERE \"auditorId\" = ?";
+
+pstmt = conn.prepareStatement(cmaSql);
+
+            
+pstmt.setLong(1, auditorId);
+rs = pstmt.executeQuery();
+
+while (rs.next()) {
+    JSONObject assessment = new JSONObject();
+
+    assessment.put("assessmentId", rs.getLong("assessmentId"));
+    assessment.put("companyName", "Technology Partner");
+    assessment.put("type", "CMA");
+    assessment.put("status", rs.getString("status"));
+    assessment.put("finalTsiScore", rs.getObject("finalCmaScore") != null ? rs.getDouble("finalCmaScore") : null);
+    assessment.put("completionDate", rs.getTimestamp("completionDate") != null ? rs.getTimestamp("completionDate").toInstant().toString() : null);
+    assessment.put("isAnchored", false);
+
+    assessmentArray.add(assessment);
+}
 
             output.put("success", true);
             output.put("data", assessmentArray);
@@ -283,6 +343,296 @@ public class DMA implements Action {
         return new JSONObject() {{ put("success", true); put("data", result); }};
     }
 
+    private JSONObject saveCmaAssessment(Long assessmentId, Long auditorId, JSONObject input) throws Exception {
+        JSONObject assessmentDetailJson = (JSONObject) input.get("assessmentDetailJson");
+
+        if (assessmentDetailJson == null) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", true);
+            error.put("error_message", "Incomplete Data - assessmentDetailJson is required.");
+            return error;
+        }
+
+        JSONObject answers = (JSONObject) assessmentDetailJson.get("results");
+
+        if (answers == null) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", true);
+            error.put("error_message", "Incomplete Data - assessmentDetailJson.results is required.");
+            return error;
+        }
+
+        JSONObject template = SystemConfig.readJSONTemplate("/WEB-INF/assessments/cma-v1.json");
+        JSONObject cmaResult;
+        try {
+            cmaResult = evaluateCma(template, answers);
+        } catch (IllegalArgumentException e) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", true);
+            error.put("error_message", e.getMessage());
+            return error;
+        }
+
+        assessmentDetailJson.put("assessmentType", "CMA");
+        assessmentDetailJson.put("type", "CMA");
+        assessmentDetailJson.put("version", template.get("version"));
+        assessmentDetailJson.put("totalScore", cmaResult.get("score"));
+        assessmentDetailJson.put("maturitySummary", cmaResult.get("maturitySummary"));
+        assessmentDetailJson.put("strengths", cmaResult.get("strengths"));
+        assessmentDetailJson.put("areasForImprovement", cmaResult.get("areasForImprovement"));
+        assessmentDetailJson.put("lastSavedAt", new Timestamp(System.currentTimeMillis()).toString());
+
+        JSONObject data = new JSONObject();
+        data.put("assessmentType", "CMA");
+        data.put("finalCmaScore", cmaResult.get("score"));
+        data.put("maturitySummary", cmaResult.get("maturitySummary"));
+        data.put("strengths", cmaResult.get("strengths"));
+        data.put("areasForImprovement", cmaResult.get("areasForImprovement"));
+        data.put("persisted", false);
+
+        Long savedAssessmentId = saveCmaAssessmentRecord(assessmentId, auditorId, (Integer) cmaResult.get("score"), assessmentDetailJson);
+        if (savedAssessmentId != null) {
+            data.put("assessmentId", savedAssessmentId);
+            data.put("persisted", true);
+        }
+
+        JSONObject output = new JSONObject();
+        output.put("success", true);
+        output.put("message", "CMA assessment saved successfully.");
+        output.put("data", data);
+        return output;
+    }
+
+    private JSONObject evaluateCma(JSONObject template, JSONObject answers) {
+        JSONObject result = new JSONObject();
+        JSONArray strengths = new JSONArray();
+        JSONArray improvementAreas = new JSONArray();
+        JSONArray sections = (JSONArray) template.get("sections");
+        int score = 0;
+
+        Iterator<JSONObject> sectionIt = sections.iterator();
+        while (sectionIt.hasNext()) {
+            JSONObject section = sectionIt.next();
+            String sectionTitle = (String) section.get("sectionTitle");
+            JSONArray questions = (JSONArray) section.get("questions");
+            int sectionScore = 0;
+            int sectionCount = 0;
+
+            Iterator<JSONObject> questionIt = questions.iterator();
+            while (questionIt.hasNext()) {
+                JSONObject question = questionIt.next();
+                String questionId = (String) question.get("questionId");
+                int answer = getCmaAnswerValue(answers, questionId);
+                score += answer;
+                sectionScore += answer;
+                sectionCount++;
+            }
+
+            double sectionAverage = (double) sectionScore / sectionCount;
+            if (sectionAverage >= 4.0) {
+                strengths.add(sectionTitle);
+            }
+            if (sectionAverage <= 2.0) {
+                improvementAreas.add(sectionTitle);
+            }
+        }
+
+        result.put("score", score);
+        result.put("maturitySummary", getCmaMaturitySummary(score));
+        result.put("strengths", strengths);
+        result.put("areasForImprovement", improvementAreas);
+        return result;
+    }
+
+    private int getCmaAnswerValue(JSONObject answers, String questionId) {
+        Object value = answers.get(questionId);
+
+        if (value == null) {
+            throw new IllegalArgumentException("Missing CMA answer for question: " + questionId);
+        }
+
+        int answer;
+        try {
+            answer = Integer.parseInt(value.toString());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid CMA answer for question: " + questionId);
+        }
+
+        if (answer < 1 || answer > 5) {
+            throw new IllegalArgumentException("CMA answer must be between 1 and 5 for question: " + questionId);
+        }
+
+        return answer;
+    }
+
+    private String getCmaMaturitySummary(int score) {
+        if (score <= 24) return "Level 1 \u2013 Ad-Hoc / Initial";
+        if (score <= 36) return "Level 2 \u2013 Managed / Basic";
+        if (score <= 48) return "Level 3 \u2013 Defined / Developing";
+        if (score <= 59) return "Level 4 \u2013 Quantitatively Managed / Consistent";
+        return "Level 5 \u2013 Optimizing / Leading";
+    }
+
+    private Long saveCmaAssessmentRecord(Long assessmentId, Long auditorId, Integer finalCmaScore, JSONObject assessmentDetailJson) throws SQLException {
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        PoolDB pool = new PoolDB();
+        boolean isExistingAssessment = assessmentId != null && assessmentId.longValue() > 0L;
+
+        try {
+            conn = pool.getConnection();
+            DatabaseMetaData metaData = conn.getMetaData();
+            rs = metaData.getTables(null, null, "cma_assessment", new String[]{"TABLE"});
+
+            if (!rs.next()) {
+                return null;
+            }
+
+            pool.cleanup(rs, null, null);
+            rs = null;
+
+            if (isExistingAssessment) {
+                String sql = "UPDATE \"cma_assessment\" SET \"finalCmaScore\" = ?, \"assessmentDetailJson\" = ?::jsonb, \"completionDate\" = NOW() " +
+                        "WHERE \"assessmentId\" = ? AND \"auditorId\" = ? AND status = 'PENDING'";
+
+                pstmt = conn.prepareStatement(sql);
+                pstmt.setDouble(1, finalCmaScore);
+                pstmt.setString(2, assessmentDetailJson.toJSONString());
+                pstmt.setLong(3, assessmentId);
+                pstmt.setLong(4, auditorId);
+
+                int affectedRows = pstmt.executeUpdate();
+                if (affectedRows == 0) {
+                    throw new SQLException("CMA assessment update failed: Record not found, not assigned to auditor, or already published.");
+                }
+                return assessmentId;
+            }
+
+            String sql = "INSERT INTO \"cma_assessment\" (\"auditorId\", \"finalCmaScore\", \"status\", \"assessmentDetailJson\", \"completionDate\") " +
+                    "VALUES (?, ?, 'PENDING', ?::jsonb, NOW()) RETURNING \"assessmentId\"";
+
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setLong(1, auditorId);
+            pstmt.setDouble(2, finalCmaScore);
+            pstmt.setString(3, assessmentDetailJson.toJSONString());
+
+            rs = pstmt.executeQuery();
+            if (rs.next()) {
+                return rs.getLong("assessmentId");
+            }
+            return null;
+        } catch (SQLException e) {
+            String sqlState = e.getSQLState();
+            if ("42P01".equals(sqlState) || "42703".equals(sqlState)) {
+                return null;
+            }
+            throw e;
+        } finally {
+            pool.cleanup(rs, pstmt, conn);
+        }
+    }
+
+    private JSONObject getCmaAssessmentDetails(Long assessmentId, Long auditorId) throws Exception {
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        PoolDB pool = new PoolDB();
+        JSONObject result = new JSONObject();
+
+        if (assessmentId == null || assessmentId.longValue() <= 0) {
+            result.put("success", false);
+            result.put("error", true);
+            result.put("error_message", "Invalid CMA assessment ID provided.");
+            return result;
+        }
+
+        String sql = "SELECT cma.\"assessmentId\", cma.\"finalCmaScore\", cma.status, cma.\"completionDate\", cma.\"assessmentDetailJson\", " +
+                "u.email AS auditor_email, u.\"linkedin\" " +
+                "FROM \"cma_assessment\" cma " +
+                "JOIN \"users\" u ON cma.\"auditorId\" = u.\"userId\" " +
+                "WHERE cma.\"assessmentId\" = ? AND cma.\"auditorId\" = ?";
+
+        try {
+            conn = pool.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setLong(1, assessmentId);
+            pstmt.setLong(2, auditorId);
+            rs = pstmt.executeQuery();
+
+            if (!rs.next()) {
+                throw new SQLException("CMA assessment not found for ID: " + assessmentId);
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("assessmentId", rs.getLong("assessmentId"));
+            data.put("assessmentType", "CMA");
+            data.put("type", "CMA");
+            data.put("status", rs.getString("status"));
+            double finalCmaScore = rs.getObject("finalCmaScore") != null ? rs.getDouble("finalCmaScore") : 0.0;
+            String completionDate = rs.getTimestamp("completionDate") != null ? rs.getTimestamp("completionDate").toInstant().toString() : null;
+            data.put("finalCmaScore", finalCmaScore);
+            data.put("finalTsiScore", finalCmaScore);
+            data.put("completionDate", completionDate);
+            data.put("msmeName", "Technology Partner");
+            data.put("udyamRegistrationNo", "CMA");
+            data.put("auditorEmail", rs.getString("auditor_email"));
+            data.put("auditorLinkedin", rs.getString("linkedin"));
+
+            String assessmentDetailJsonString = rs.getString("assessmentDetailJson");
+            if (assessmentDetailJsonString != null) {
+                data.put("assessmentDetailJson", new JSONParser().parse(assessmentDetailJsonString));
+            }
+
+            result.put("success", true);
+            result.put("data", data);
+            return result;
+        } finally {
+            pool.cleanup(rs, pstmt, conn);
+        }
+    }
+
+    private JSONObject publishCmaAssessment(Long assessmentId, Long auditorId) throws SQLException {
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        PoolDB pool = new PoolDB();
+        JSONObject result = new JSONObject();
+
+        if (assessmentId == null || assessmentId.longValue() <= 0) {
+            result.put("success", false);
+            result.put("error", true);
+            result.put("error_message", "Invalid CMA assessment ID provided.");
+            return result;
+        }
+
+        String sql = "UPDATE \"cma_assessment\" SET status = 'AUDITED', \"completionDate\" = NOW() " +
+                "WHERE \"assessmentId\" = ? AND \"auditorId\" = ? AND status = 'PENDING'";
+
+        try {
+            conn = pool.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setLong(1, assessmentId);
+            pstmt.setLong(2, auditorId);
+
+            int affectedRows = pstmt.executeUpdate();
+            if (affectedRows == 0) {
+                result.put("success", false);
+                result.put("error", true);
+                result.put("error_message", "CMA publish failed: Record not found, not assigned to auditor, or already published.");
+                return result;
+            }
+
+            result.put("success", true);
+            result.put("message", "CMA assessment published successfully.");
+            return result;
+        } finally {
+            pool.cleanup(null, pstmt, conn);
+        }
+    }
+
     // ------------------------------------------
     // Existing/Helper Functions (Moved/Simplified)
     // ------------------------------------------
@@ -388,6 +738,27 @@ public class DMA implements Action {
         // Renamed from getQuestionnaireTemplate
         JSONObject assessment = SystemConfig.readJSONTemplate("/WEB-INF/assessments/"+"dma"+"-"+"v1"+".json");
         return new JSONObject() {{ put("success", true); put("data", assessment); }};
+    }
+   
+    private JSONObject getCmaQuestionnaire() throws ParseException {
+    JSONObject assessment = SystemConfig.readJSONTemplate("/WEB-INF/assessments/cma-v1.json");
+
+    return new JSONObject() {{
+        put("success", true);
+        put("data", assessment);
+    }};
+}
+    /**
+     * Returns the lightweight CMA scaffold status for the auditor dashboard preview.
+     */
+    private JSONObject getCmaStatus() {
+        JSONObject status = new JSONObject();
+        status.put("success", true);
+        status.put("module", "CMA");
+        status.put("title", "Capability Maturity Assessment");
+        status.put("description", "CMA evaluates local technology partners, implementers, and integrators for service readiness, implementation capability, and trust.");
+        status.put("currentStage", "Scaffold ready");
+        return status;
     }
 
     /**

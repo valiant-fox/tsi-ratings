@@ -34,6 +34,7 @@ public class InterceptingFilter implements Filter {
             "register_user",
             "login_otp",
             "login",
+            "get_cma_status",
             "get_dma_assessment_details",
             "validate_assessment"
     ));

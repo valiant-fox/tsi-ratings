@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TSI Ratings | Settings</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --tsi-primary: #006A67;
+            --background: #f4fbf9;
+            --accent-yellow: #f39c12;
+        }
+
+        body {
+            background-color: var(--background);
+            font-family: ui-sans-serif, system-ui, sans-serif;
+        }
+
+        .primary-bg { background-color: var(--tsi-primary); }
+        .primary-text { color: var(--tsi-primary); }
+
+        .sidebar {
+            width: 280px;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.05);
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            color: var(--accent-yellow);
+            font-weight: 500;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+        }
+
+        .nav-item:hover {
+            background-color: #f0fdfc;
+            color: #000000;
+        }
+
+        .nav-item.active {
+            color: white;
+            background-color: var(--tsi-primary);
+        }
+
+        .card {
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.06);
+        }
+
+        .form-input {
+            width: 100%;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            padding: 0.625rem 0.75rem;
+            color: #374151;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--tsi-primary);
+            box-shadow: 0 0 0 3px rgba(0, 106, 103, 0.15);
+        }
+
+        .form-input[readonly] {
+            background-color: #f9fafb;
+            color: #6b7280;
+        }
+
+        .toggle-input {
+            width: 2.75rem;
+            height: 1.5rem;
+            appearance: none;
+            background-color: #d1d5db;
+            border-radius: 9999px;
+            position: relative;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .toggle-input::after {
+            content: "";
+            position: absolute;
+            width: 1.125rem;
+            height: 1.125rem;
+            top: 0.1875rem;
+            left: 0.1875rem;
+            border-radius: 9999px;
+            background-color: white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+            transition: transform 0.2s;
+        }
+
+        .toggle-input:checked {
+            background-color: var(--tsi-primary);
+        }
+
+        .toggle-input:checked::after {
+            transform: translateX(1.25rem);
+        }
+
+        @media (max-width: 767px) {
+            .sidebar {
+                width: 100%;
+            }
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'tsi-primary': 'var(--tsi-primary)',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="flex flex-col md:flex-row min-h-screen">
+
+<aside class="sidebar primary-bg flex flex-col p-4 text-white">
+    <div class="mb-8 p-2">
+        <span class="text-xl font-bold ml-3">TSI Ratings</span>
+    </div>
+
+    <nav class="flex-grow">
+        <a href="auditor-dashboard.html" class="nav-item">
+            Dashboard
+        </a>
+
+        <a href="auditor-assessment-list.html" class="nav-item">
+            Assessment History
+        </a>
+
+        <a href="settings.html" class="nav-item active">
+            Settings
+        </a>
+    </nav>
+
+    <div class="mt-8">
+        <a href="login.html" class="nav-item bg-red-600 hover:bg-red-700 text-white rounded-lg">
+            Logout
+        </a>
+    </div>
+</aside>
+
+<main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8">
+            <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+                <div>
+                    <p class="text-sm font-semibold primary-text uppercase tracking-wide">Account Settings</p>
+                    <h1 class="text-3xl font-bold text-gray-800 mt-1">Settings</h1>
+                    <p class="text-gray-500 mt-2">Manage your local profile details and OTP-based account preferences.</p>
+                </div>
+
+                <div class="card p-4 min-w-full lg:min-w-96">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Signed in as</p>
+                    <p class="text-lg font-bold text-gray-800 mt-1" id="display-email">Auditor User</p>
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        <span class="inline-flex rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold primary-text">IT Auditor</span>
+                        <span class="inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">Active</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div id="settings-message" class="hidden mb-6 rounded-lg border px-4 py-3 text-sm font-medium"></div>
+
+        <section class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div class="xl:col-span-2 card p-6">
+                <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-800">Profile Information</h2>
+                        <p class="text-sm text-gray-500 mt-1">These details are saved locally in this browser.</p>
+                    </div>
+                    <span class="text-sm font-semibold primary-text">Role: IT Auditor</span>
+                </div>
+
+                <form id="settings-form" class="space-y-5">
+                    <div>
+                        <label for="display-name" class="block text-sm font-medium text-gray-700 mb-2">Display Name</label>
+                        <input id="display-name" type="text" class="form-input" placeholder="e.g., Alex Johnson">
+                    </div>
+
+                    <div>
+                        <label for="short-bio" class="block text-sm font-medium text-gray-700 mb-2">One-liner / Short Bio</label>
+                        <textarea id="short-bio" rows="3" class="form-input resize-none" placeholder="e.g., Certified IT auditor focused on MSME digital readiness."></textarea>
+                    </div>
+
+                    <div>
+                        <label for="linkedin-url" class="block text-sm font-medium text-gray-700 mb-2">LinkedIn URL</label>
+                        <input id="linkedin-url" type="url" class="form-input" placeholder="https://www.linkedin.com/in/your-profile">
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
+                        <p class="text-sm text-gray-500">Saving updates only this browser's local settings.</p>
+                        <button type="submit" class="primary-bg text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-opacity-90 transition shadow-sm">
+                            Save Profile
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="space-y-6">
+                <div class="card p-6">
+                    <h2 class="text-xl font-semibold text-gray-800">Preferences</h2>
+                    <p class="text-sm text-gray-500 mt-1 mb-5">Choose which local reminders stay enabled.</p>
+
+                    <label class="flex items-center justify-between gap-4 py-3 border-b border-gray-100">
+                        <span>
+                            <span class="block font-medium text-gray-800">Email Notifications</span>
+                            <span class="block text-sm text-gray-500">Keep email updates enabled in your browser preferences.</span>
+                        </span>
+                        <input id="email-notifications" type="checkbox" class="toggle-input" aria-label="Email Notifications">
+                    </label>
+
+                    <label class="flex items-center justify-between gap-4 py-3">
+                        <span>
+                            <span class="block font-medium text-gray-800">Assessment Reminders</span>
+                            <span class="block text-sm text-gray-500">Show reminder preference for pending audit work.</span>
+                        </span>
+                        <input id="assessment-reminders" type="checkbox" class="toggle-input" aria-label="Assessment Reminders">
+                    </label>
+                </div>
+
+                <div class="card p-6">
+                    <h2 class="text-xl font-semibold text-gray-800">Email / OTP Account</h2>
+                    <dl class="mt-4 space-y-3 text-sm">
+                        <div class="flex justify-between gap-4">
+                            <dt class="text-gray-500">Current Email</dt>
+                            <dd class="font-semibold text-gray-800 text-right" id="account-email">Auditor User</dd>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <dt class="text-gray-500">Authentication Method</dt>
+                            <dd class="font-semibold text-gray-800 text-right">Email OTP Verification</dd>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <dt class="text-gray-500">Account Status</dt>
+                            <dd class="font-semibold text-green-700 text-right">Active</dd>
+                        </div>
+                    </dl>
+
+                    <form id="email-update-form" class="mt-6 space-y-4">
+                        <div>
+                            <label for="current-email" class="block text-sm font-medium text-gray-700 mb-2">Current Email</label>
+                            <input id="current-email" type="email" class="form-input" readonly>
+                        </div>
+
+                        <div>
+                            <label for="new-email" class="block text-sm font-medium text-gray-700 mb-2">New Email</label>
+                            <input id="new-email" type="email" class="form-input" placeholder="new.email@example.com">
+                        </div>
+
+                        <p class="text-xs text-gray-500">
+                            Demo only: this saves a pending email request locally. Real email updates can be connected to backend OTP verification later.
+                        </p>
+
+                        <button type="submit" class="primary-bg text-white px-4 py-2 rounded-lg font-semibold hover:bg-opacity-90 transition shadow-sm">
+                            Request Email Update
+                        </button>
+                    </form>
+                </div>
+
+                <div class="card p-6">
+                    <h2 class="text-xl font-semibold text-gray-800">About</h2>
+                    <dl class="mt-4 space-y-3 text-sm">
+                        <div class="flex justify-between gap-4">
+                            <dt class="text-gray-500">Platform</dt>
+                            <dd class="font-semibold text-gray-800 text-right">TSI Ratings</dd>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <dt class="text-gray-500">Version</dt>
+                            <dd class="font-semibold text-gray-800 text-right">1.0</dd>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <dt class="text-gray-500">Settings Storage</dt>
+                            <dd class="font-semibold text-gray-800 text-right">Local browser</dd>
+                        </div>
+                    </dl>
+                </div>
+            </div>
+        </section>
+    </div>
+</main>
+
+<script>
+    const STORAGE_KEYS = {
+        displayName: 'settings.displayName',
+        shortBio: 'settings.shortBio',
+        linkedIn: 'settings.linkedIn',
+        emailNotifications: 'settings.emailNotifications',
+        assessmentReminders: 'settings.assessmentReminders',
+        pendingEmail: 'settings_pending_email'
+    };
+
+    function decodeTokenEmail(token) {
+        if (!token || token.split('.').length < 2) {
+            return '';
+        }
+
+        try {
+            const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+            const paddedPayload = payload.padEnd(payload.length + (4 - payload.length % 4) % 4, '=');
+            const decoded = JSON.parse(atob(paddedPayload));
+            return decoded.email || decoded.sub || decoded.username || '';
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function resolveUserEmail() {
+        return localStorage.getItem('email')
+            || localStorage.getItem('userEmail')
+            || decodeTokenEmail(localStorage.getItem('token'))
+            || decodeTokenEmail(localStorage.getItem('authToken'))
+            || 'Auditor User';
+    }
+
+    function isValidEmail(email) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    }
+
+    function showMessage(element, message, type) {
+        const isSuccess = type === 'success';
+        element.textContent = message;
+        element.className = `mb-6 rounded-lg border px-4 py-3 text-sm font-medium ${isSuccess ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`;
+        element.classList.remove('hidden');
+    }
+
+    function loadSettings() {
+        const email = resolveUserEmail();
+        document.getElementById('display-email').textContent = email;
+        document.getElementById('account-email').textContent = email;
+        document.getElementById('current-email').value = email;
+        document.getElementById('new-email').value = localStorage.getItem(STORAGE_KEYS.pendingEmail) || '';
+
+        document.getElementById('display-name').value = localStorage.getItem(STORAGE_KEYS.displayName) || '';
+        document.getElementById('short-bio').value = localStorage.getItem(STORAGE_KEYS.shortBio) || '';
+        document.getElementById('linkedin-url').value = localStorage.getItem(STORAGE_KEYS.linkedIn) || '';
+
+        document.getElementById('email-notifications').checked = localStorage.getItem(STORAGE_KEYS.emailNotifications) !== 'false';
+        document.getElementById('assessment-reminders').checked = localStorage.getItem(STORAGE_KEYS.assessmentReminders) !== 'false';
+    }
+
+    function saveSettings(event) {
+        event.preventDefault();
+
+        localStorage.setItem(STORAGE_KEYS.displayName, document.getElementById('display-name').value.trim());
+        localStorage.setItem(STORAGE_KEYS.shortBio, document.getElementById('short-bio').value.trim());
+        localStorage.setItem(STORAGE_KEYS.linkedIn, document.getElementById('linkedin-url').value.trim());
+        localStorage.setItem(STORAGE_KEYS.emailNotifications, document.getElementById('email-notifications').checked);
+        localStorage.setItem(STORAGE_KEYS.assessmentReminders, document.getElementById('assessment-reminders').checked);
+
+        showMessage(document.getElementById('settings-message'), 'Settings saved successfully.', 'success');
+    }
+
+    function requestEmailUpdate(event) {
+        event.preventDefault();
+
+        const newEmail = document.getElementById('new-email').value.trim();
+
+        if (!isValidEmail(newEmail)) {
+            showMessage(document.getElementById('settings-message'), 'Enter a valid new email address.', 'error');
+            return;
+        }
+
+        localStorage.setItem(STORAGE_KEYS.pendingEmail, newEmail);
+        showMessage(document.getElementById('settings-message'), 'Email update request saved locally for review. Backend update can be connected later.', 'success');
+    }
+
+    document.getElementById('settings-form').addEventListener('submit', saveSettings);
+    document.getElementById('email-update-form').addEventListener('submit', requestEmailUpdate);
+
+    document.getElementById('email-notifications').addEventListener('change', () => {
+        localStorage.setItem(STORAGE_KEYS.emailNotifications, document.getElementById('email-notifications').checked);
+    });
+
+    document.getElementById('assessment-reminders').addEventListener('change', () => {
+        localStorage.setItem(STORAGE_KEYS.assessmentReminders, document.getElementById('assessment-reminders').checked);
+    });
+
+    loadSettings();
+</script>
+
+</body>
+</html>

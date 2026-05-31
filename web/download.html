@@ -85,10 +85,14 @@
 
         const urlParams = new URLSearchParams(window.location.search);
         const ASSESSMENT_ID = parseInt(urlParams.get('assessmentId')) || 0;
+        const ASSESSMENT_TYPE = (urlParams.get('type') || 'DMA').toUpperCase();
+        const IS_CMA = ASSESSMENT_TYPE === 'CMA';
         const MSME_NAME = urlParams.get('msmeName') || 'Shakti Textiles & Exports';
         const AUDITOR_NAME = "IT Auditor (Certified)";
         const AUTH_TOKEN = localStorage.getItem('token');
-        const PUBLIC_VALIDATION_URL = `https://tsicoop.org/ratings/verify?assessmentId=${ASSESSMENT_ID}`;
+        const PUBLIC_VALIDATION_URL = IS_CMA
+            ? `${window.location.origin}${window.location.pathname}?assessmentId=${ASSESSMENT_ID}&type=CMA`
+            : `https://tsicoop.org/ratings/verify?assessmentId=${ASSESSMENT_ID}`;
 
         let assessmentData = null;
         let questionnaire = null;
@@ -97,6 +101,49 @@
          * Logic to map score to Digital Maturity Level details
          */
         function getRatingInfo(score) {
+            if (IS_CMA) {
+                if (score <= 24) {
+                    return {
+                        rating: 1,
+                        summary: "Level 1: Ad-Hoc / Initial",
+                        description: "Capability is informal and dependent on individual effort.",
+                        characteristics: "Limited repeatability, minimal governance, and inconsistent delivery practices.",
+                        recommendation: "Define core service, delivery, support, and governance processes before scaling."
+                    };
+                } else if (score <= 36) {
+                    return {
+                        rating: 2,
+                        summary: "Level 2: Managed / Basic",
+                        description: "Foundational practices exist but are not consistently standardized.",
+                        characteristics: "Basic project tracking, informal quality checks, and emerging operational discipline.",
+                        recommendation: "Standardize delivery methods, quality gates, client communication, and internal controls."
+                    };
+                } else if (score <= 48) {
+                    return {
+                        rating: 3,
+                        summary: "Level 3: Defined / Developing",
+                        description: "Capabilities are documented and increasingly repeatable across engagements.",
+                        characteristics: "Defined service offerings, clearer delivery practices, and stronger technical capability.",
+                        recommendation: "Improve measurement, governance cadence, and reusable implementation playbooks."
+                    };
+                } else if (score <= 59) {
+                    return {
+                        rating: 4,
+                        summary: "Level 4: Quantitatively Managed / Consistent",
+                        description: "Delivery and governance are consistent, measured, and actively managed.",
+                        characteristics: "Reliable execution, formal quality management, and proactive client relationship practices.",
+                        recommendation: "Use performance data to optimize services, pricing, support, and risk management."
+                    };
+                }
+                return {
+                    rating: 5,
+                    summary: "Level 5: Optimizing / Leading",
+                    description: "Capabilities are mature, continuously improved, and positioned for scalable delivery.",
+                    characteristics: "Strong governance, innovation discipline, transparent delivery, and consistent client outcomes.",
+                    recommendation: "Benchmark externally, expand advanced service offerings, and institutionalize continuous improvement."
+                };
+            }
+
             if(score <= 28) {
                 return {
                     rating: 1,
@@ -144,7 +191,7 @@
             const element = document.getElementById('report-content');
             const opt = {
                 margin:       [10, 10, 10, 10],
-                filename:     `TSI_Ratings_Report_${ASSESSMENT_ID}.pdf`,
+                filename:     `TSI_Ratings_${ASSESSMENT_TYPE}_Report_${ASSESSMENT_ID}.pdf`,
                 image:        { type: 'jpeg', quality: 0.98 },
                 html2canvas:  {
                     scale: 2,
@@ -178,7 +225,7 @@
                 const qRes = await fetch('api/v1/dma', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
-                    body: JSON.stringify({ _func: 'get_dma_questionnaire', version: 'v1' })
+                    body: JSON.stringify({ _func: IS_CMA ? 'get_cma_questionnaire' : 'get_dma_questionnaire', version: 'v1' })
                 });
                 const qData = await qRes.json();
                 questionnaire = qData.data;
@@ -186,7 +233,7 @@
                 const aRes = await fetch('api/v1/dma', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
-                    body: JSON.stringify({ _func: 'get_dma_assessment_details', assessmentId: ASSESSMENT_ID })
+                    body: JSON.stringify({ _func: IS_CMA ? 'get_cma_assessment_details' : 'get_dma_assessment_details', assessmentId: ASSESSMENT_ID })
                 });
                 const aData = await aRes.json();
                 assessmentData = aData.data;
@@ -214,12 +261,21 @@
             const auditorlinkedin = assessmentData.auditorLinkedin || '';
 
             // Set final score and title
-            document.getElementById('final-score-badge').textContent = `${score}%`;
+            document.getElementById('final-score-badge').textContent = `${score}${IS_CMA ? '' : '%'}`;
             document.getElementById('rating-summary-text').textContent = ratingInfo.summary;
+            document.getElementById('report-type-label').textContent = `TSI Ratings: ${IS_CMA ? 'Capability Maturity Assessment (CMA)' : 'Digital Maturity Assessment (DMA)'} Report`;
+            document.getElementById('report-main-title').textContent = `TSI Ratings - ${IS_CMA ? 'Capability Maturity Assessment' : 'Digital Maturity Assessment'}`;
+            document.getElementById('score-label').textContent = IS_CMA ? 'Capability Maturity Score' : 'Digital Maturity Score';
+            document.getElementById('asset-label').textContent = IS_CMA ? 'Published CMA Report' : 'Operational Resilience Asset';
+            document.getElementById('anchor-label').textContent = IS_CMA ? 'Downloadable Assessment Report' : 'Blockchain Anchored Digital Collateral';
+            document.getElementById('qr-caption').textContent = IS_CMA ? 'Scan to Open' : 'Scan to Verify';
+            document.getElementById('footer-proof-label').textContent = IS_CMA ? 'Published CMA Report' : 'Anchored in BSV Blockchain';
+            document.getElementById('organisation-label').textContent = IS_CMA ? 'Partner Name' : 'Organisation Name';
+            document.getElementById('udyam-label').textContent = IS_CMA ? 'Assessment Type' : 'Udyam Reg No';
 
             // Set MSME name and Auditor Email
             document.getElementById('msme-display-name').textContent = `${msmedisplayname}`;
-            document.getElementById('udyam-id').textContent = `${udyamId}`;
+            document.getElementById('udyam-id').textContent = `${IS_CMA ? 'CMA' : udyamId}`;
             document.getElementById('auditor-display-name').textContent = `${auditoremail}`;
             document.getElementById('auditor-website').textContent = `${auditorlinkedin}`;
 
@@ -252,6 +308,7 @@
                     </div>
                 </div>
             `;
+            analysisContainer.querySelector('h2').textContent = IS_CMA ? 'Capability Maturity Analysis' : 'Digital Maturity Analysis';
 
             const results = assessmentData.assessmentDetailJson.results;
             questionnaire.sections.forEach(section => {
@@ -273,10 +330,12 @@
                 container.appendChild(sectionEl);
             });
 
-            const notesEl = document.createElement('div');
-            notesEl.className = 'mt-10 p-4 bg-gray-50 border rounded-lg';
-            notesEl.innerHTML = `<h3 class="text-sm font-bold text-gray-700 mb-2">Auditor's Qualitative Summary</h3><p class="text-sm text-gray-600 italic">"${assessmentData.assessmentDetailJson.auditorNotes || 'No notes provided.'}"</p>`;
-            container.appendChild(notesEl);
+            if (!IS_CMA) {
+                const notesEl = document.createElement('div');
+                notesEl.className = 'mt-10 p-4 bg-gray-50 border rounded-lg';
+                notesEl.innerHTML = `<h3 class="text-sm font-bold text-gray-700 mb-2">Auditor's Qualitative Summary</h3><p class="text-sm text-gray-600 italic">"${assessmentData.assessmentDetailJson.auditorNotes || 'No notes provided.'}"</p>`;
+                container.appendChild(notesEl);
+            }
         }
 
         window.onload = initReport;
@@ -286,7 +345,7 @@
 
 <div class="no-print sticky top-0 bg-white border-b p-4 flex justify-between items-center z-50">
     <div class="flex items-center gap-4">
-        <span class="text-sm font-medium text-gray-500">TSI Ratings: Digital Maturity Assessment (DMA) Report</span>
+        <span class="text-sm font-medium text-gray-500" id="report-type-label">TSI Ratings: Digital Maturity Assessment (DMA) Report</span>
     </div>
     <div class="flex gap-3">
         <!-- Replaced button with anchor tag for more reliable navigation -->
@@ -299,22 +358,22 @@
 
 <div id="report-content" class="report-container">
     <!-- Header Section -->
-    <h3 class="text-2xl font-black primary-text mb-4">TSI Ratings - Digital Maturity Assessment</h3>
+    <h3 class="text-2xl font-black primary-text mb-4" id="report-main-title">TSI Ratings - Digital Maturity Assessment</h3>
 
     <div class="flex gap-12 items-end mb-10 border-b border-gray-50 pb-8">
         <!-- Left: Title and QR -->
         <div class="flex flex-col items-start min-w-[150px]">
             <div id="qrcode" class="p-2 bg-white border border-gray-200"></div>
-            <p class="text-[10px] text-gray-400 uppercase tracking-widest font-bold text-center w-[106px]">Scan to Verify</p>
+            <p class="text-[10px] text-gray-400 uppercase tracking-widest font-bold text-center w-[106px]" id="qr-caption">Scan to Verify</p>
         </div>
 
         <!-- Right: Details Group (Brought closer) -->
         <div class="flex-1 pb-4">
             <div class="grid grid-cols-[auto,1fr] gap-x-8 gap-y-2 text-sm">
-                <div class="text-gray-400 font-medium">Organisation Name</div>
+                <div class="text-gray-400 font-medium" id="organisation-label">Organisation Name</div>
                 <div class="font-bold text-gray-800" id="msme-display-name">Shakti Textiles & Exports</div>
 
-                <div class="text-gray-400 font-medium">Udyam Reg No</div>
+                <div class="text-gray-400 font-medium" id="udyam-label">Udyam Reg No</div>
                 <div class="font-bold text-gray-800" id="udyam-id">123456</div>
 
                 <div class="text-gray-400 font-medium">Auditor Email</div>
@@ -329,15 +388,15 @@
     <!-- Summary Banner -->
     <div class="primary-bg text-white p-6 rounded-xl flex justify-between items-center mb-10">
         <div>
-            <p class="text-xs uppercase tracking-wider opacity-80">Digital Maturity Score</p>
+            <p class="text-xs uppercase tracking-wider opacity-80" id="score-label">Digital Maturity Score</p>
             <div class="flex items-baseline gap-4">
                 <h2 class="text-4xl font-black" id="final-score-badge">--%</h2>
                 <span class="text-xl font-bold opacity-90 border-l border-white/30 pl-4" id="rating-summary-text">Calculating...</span>
             </div>
         </div>
         <div class="text-right">
-            <p class="text-sm font-bold">Operational Resilience Asset</p>
-            <p class="text-[10px] opacity-70">Blockchain Anchored Digital Collateral</p>
+            <p class="text-sm font-bold" id="asset-label">Operational Resilience Asset</p>
+            <p class="text-[10px] opacity-70" id="anchor-label">Blockchain Anchored Digital Collateral</p>
         </div>
     </div>
 
@@ -350,7 +409,7 @@
     </div>
 
     <div class="mt-12 pt-6 border-t border-gray-100 text-[10px] text-gray-400 flex justify-between">
-        <div>Generated by TSI Ratings System | Anchored in BSV Blockchain</div>
+        <div>Generated by TSI Ratings System | <span id="footer-proof-label">Anchored in BSV Blockchain</span></div>
         <div>Page 1 of 1</div>
     </div>
 </div>

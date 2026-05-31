@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "_func": {
+      "type": "string"
+    }
+  },
+  "required": ["_func"],
+  "additionalProperties": true
+}

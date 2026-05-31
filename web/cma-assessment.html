@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TSI Ratings | Capability Maturity Assessment</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --tsi-primary: #006A67; /* Primary Dark Teal Color */
+            --background: #f4fbf9; /* Light, clean background */
+            --border-color: #d1d5db; /* Light gray for borders */
+        }
+
+        body {
+            background-color: var(--background);
+            font-family: ui-sans-serif, system-ui, sans-serif;
+        }
+
+        .primary-bg { background-color: var(--tsi-primary); }
+        .primary-text { color: var(--tsi-primary); }
+
+        .card {
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+            border: 1px solid var(--border-color);
+        }
+
+        .radio-option:checked {
+            background-color: var(--tsi-primary);
+            border-color: var(--tsi-primary);
+        }
+
+        .radio-label:has(.radio-option:checked) {
+            background-color: #e0f2f1; /* Light teal background */
+            border-color: var(--tsi-primary);
+            color: var(--tsi-primary);
+            font-weight: 600;
+        }
+
+        .sticky-footer {
+            box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'tsi-primary': 'var(--tsi-primary)',
+                    }
+                }
+            }
+        }
+
+        const CURRENT_AUDITOR_NAME = "IT Auditor";
+         const AUTH_TOKEN = localStorage.getItem('token');
+        const urlParams = new URLSearchParams(window.location.search);
+        let CURRENT_CMA_ASSESSMENT_ID = parseInt(urlParams.get('assessmentId')) || 0;
+        let assessmentResults = {};
+        let totalQuestionsCount = 0;
+        let calculatedCmaResult = null;
+        let isCmaDraftSaved = false;
+
+       let cmaQuestionnaire = null;
+                       
+
+        function showResultMessage(message, type = 'default') {
+            const resultElement = document.getElementById('result-message');
+            resultElement.classList.remove('hidden', 'bg-red-100', 'text-red-600', 'bg-green-100', 'text-green-600', 'bg-blue-100', 'text-blue-600');
+            resultElement.classList.add('transition-opacity', 'duration-300');
+
+            if (type === 'error') {
+                resultElement.classList.add('bg-red-100', 'text-red-600');
+            } else if (type === 'success') {
+                resultElement.classList.add('bg-green-100', 'text-green-600');
+            } else {
+                resultElement.classList.add('bg-blue-100', 'text-blue-600');
+            }
+
+            resultElement.textContent = message;
+        }
+
+        function getMaturityLevel(totalScore) {
+            if (totalScore <= 24) return "Level 1 \u2013 Ad-Hoc / Initial";
+            if (totalScore <= 36) return "Level 2 \u2013 Managed / Basic";
+            if (totalScore <= 48) return "Level 3 \u2013 Defined / Developing";
+            if (totalScore <= 59) return "Level 4 \u2013 Quantitatively Managed / Consistent";
+            return "Level 5 \u2013 Optimizing / Leading";
+        }
+
+        function areAllQuestionsAnswered() {
+            const answeredQuestions = Object.keys(assessmentResults).length;
+
+            if (answeredQuestions !== totalQuestionsCount) {
+                showResultMessage(`Progress: ${answeredQuestions}/${totalQuestionsCount} questions answered. Complete all questions to calculate the CMA score.`, 'error');
+                document.getElementById('result-summary').classList.add('hidden');
+                return false;
+            }
+
+            return true;
+        }
+
+        function calculateSectionAnalysis() {
+            const strengths = [];
+            const improvementAreas = [];
+
+            cmaQuestionnaire.sections.forEach(section => {
+                const sectionScores = section.questions.map(question => assessmentResults[question.questionId]);
+                const sectionAverage = sectionScores.reduce((sum, value) => sum + value, 0) / sectionScores.length;
+
+                if (sectionAverage >= 4.0) {
+                    strengths.push(section.sectionTitle);
+                }
+
+                if (sectionAverage <= 2.0) {
+                    improvementAreas.push(section.sectionTitle);
+                }
+            });
+
+            return { strengths, improvementAreas };
+        }
+
+        function renderList(items, fallback) {
+            if (items.length === 0) {
+                return `<p class="text-gray-600">${fallback}</p>`;
+            }
+
+            return `
+                <ul class="list-disc pl-5 space-y-1 text-gray-700">
+                    ${items.map(item => `<li>${item}</li>`).join('')}
+                </ul>
+            `;
+        }
+
+        function setSaveDraftButtonState() {
+            const saveButton = document.getElementById('save-cma-draft-btn');
+            if (!saveButton) return;
+
+            saveButton.disabled = !calculatedCmaResult || isCmaDraftSaved;
+        }
+
+        function showCalculatedResult(totalScore, maturityLevel, strengths, improvementAreas) {
+            document.getElementById('score-output').textContent = `${totalScore} / 70`;
+            document.getElementById('level-output').textContent = maturityLevel;
+            document.getElementById('strengths-output').innerHTML = renderList(strengths, 'No sections reached the strengths threshold yet.');
+            document.getElementById('improvements-output').innerHTML = renderList(improvementAreas, 'No sections are currently flagged as areas for improvement.');
+            document.getElementById('result-summary').classList.remove('hidden');
+        }
+
+        function calculateScore() {
+            if (!areAllQuestionsAnswered()) {
+                return;
+            }
+
+            const totalScore = Object.values(assessmentResults).reduce((sum, value) => sum + value, 0);
+            const maturityLevel = getMaturityLevel(totalScore);
+            const { strengths, improvementAreas } = calculateSectionAnalysis();
+
+            calculatedCmaResult = {
+                totalScore: totalScore,
+                maturityLevel: maturityLevel,
+                strengths: strengths,
+                improvementAreas: improvementAreas
+            };
+            isCmaDraftSaved = false;
+            showCalculatedResult(totalScore, maturityLevel, strengths, improvementAreas);
+            setSaveDraftButtonState();
+            showResultMessage('CMA score calculated successfully.', 'success');
+        }
+
+        async function saveCmaDraft() {
+            if (!calculatedCmaResult || isCmaDraftSaved) {
+                return;
+            }
+
+            const saveButton = document.getElementById('save-cma-draft-btn');
+
+            saveButton.disabled = true;
+            saveButton.textContent = 'Saving...';
+            showResultMessage('Saving CMA draft...', 'info');
+
+            try {
+                const response = await fetch('/api/v1/dma', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify({
+                        _func: 'save_cma_assessment',
+                        assessmentId: CURRENT_CMA_ASSESSMENT_ID,
+                        assessmentType: 'CMA',
+                        type: 'CMA',
+                        assessmentDetailJson: {
+                            version: cmaQuestionnaire ? cmaQuestionnaire.version : 'v1',
+                            assessmentType: 'CMA',
+                            results: assessmentResults,
+                            totalScore: calculatedCmaResult.totalScore,
+                            maturitySummary: calculatedCmaResult.maturityLevel,
+                            strengths: calculatedCmaResult.strengths,
+                            areasForImprovement: calculatedCmaResult.improvementAreas
+                        }
+                    })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok || !result.success) {
+                    throw new Error(result.error_message || result.message || 'Failed to save CMA assessment.');
+                }
+
+                if (result.data && result.data.assessmentId) {
+                    CURRENT_CMA_ASSESSMENT_ID = parseInt(result.data.assessmentId);
+                }
+                isCmaDraftSaved = true;
+                showResultMessage('CMA assessment saved successfully.', 'success');
+            } catch (error) {
+                showResultMessage('Failed to save CMA assessment: ' + error.message, 'error');
+                saveButton.disabled = false;
+            } finally {
+                saveButton.textContent = 'Save CMA Draft';
+                setSaveDraftButtonState();
+            }
+        }
+
+        function renderAssessmentForm(data) {
+            const formContainer = document.getElementById('assessment-form-container');
+            formContainer.innerHTML = '';
+            totalQuestionsCount = 0;
+
+            document.getElementById('questionnaire-title').textContent = data.questionnaireTitle;
+            document.getElementById('header-info').innerHTML = `Assessment for evaluating local technology partners and service providers. | Assessor: <strong>${CURRENT_AUDITOR_NAME}</strong> | Version: <strong>${data.version}</strong>`;
+
+            data.sections.forEach(section => {
+                const sectionDiv = document.createElement('div');
+                sectionDiv.className = 'mb-10 p-6 card';
+
+                const sectionTitle = document.createElement('h2');
+                sectionTitle.className = 'text-xl font-bold primary-text mb-6 pb-2 border-b border-gray-200';
+                sectionTitle.textContent = `${section.sectionId}. ${section.sectionTitle}`;
+                sectionDiv.appendChild(sectionTitle);
+
+                section.questions.forEach(question => {
+                    totalQuestionsCount++;
+
+                    const questionDiv = document.createElement('div');
+                    questionDiv.className = 'mb-6 p-4 border rounded-lg bg-gray-50';
+
+                    const questionText = document.createElement('p');
+                    questionText.className = 'text-base font-semibold text-gray-800 mb-3';
+                    questionText.textContent = `${question.questionId}. ${question.questionText}`;
+                    questionDiv.appendChild(questionText);
+
+                    const optionsDiv = document.createElement('div');
+                    optionsDiv.className = 'flex flex-wrap gap-3';
+
+                    question.options.forEach(option => {
+                        const label = document.createElement('label');
+                        label.className = 'radio-label flex-1 flex items-center p-3 text-sm text-gray-700 bg-white border border-gray-300 rounded-md cursor-pointer transition-colors duration-150 ease-in-out hover:border-tsi-primary min-w-[200px] sm:min-w-0';
+                        label.setAttribute('for', `${question.questionId}-${option.value}`);
+
+                        const input = document.createElement('input');
+                        input.type = 'radio';
+                        input.name = question.questionId;
+                        input.id = `${question.questionId}-${option.value}`;
+                        input.value = option.value;
+                        input.className = 'radio-option h-4 w-4 text-tsi-primary border-gray-300 mr-2 focus:ring-tsi-primary';
+
+                        if (assessmentResults[question.questionId] !== undefined && parseInt(option.value) === parseInt(assessmentResults[question.questionId])) {
+                            input.checked = true;
+                        }
+
+                        input.addEventListener('change', (e) => {
+                            assessmentResults[question.questionId] = parseInt(e.target.value);
+                            calculatedCmaResult = null;
+                            isCmaDraftSaved = false;
+                            document.getElementById('result-message').classList.add('hidden');
+                            document.getElementById('result-summary').classList.add('hidden');
+                            setSaveDraftButtonState();
+                        });
+
+                        label.appendChild(input);
+                        label.appendChild(document.createTextNode(option.text));
+                        optionsDiv.appendChild(label);
+                    });
+
+                    questionDiv.appendChild(optionsDiv);
+                    sectionDiv.appendChild(questionDiv);
+                });
+
+                formContainer.appendChild(sectionDiv);
+            });
+        }
+
+        async function fetchSavedCmaAssessmentData() {
+            if (!CURRENT_CMA_ASSESSMENT_ID) {
+                return null;
+            }
+
+            const response = await fetch('/api/v1/dma', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${AUTH_TOKEN}`
+                },
+                body: JSON.stringify({
+                    _func: 'get_cma_assessment_details',
+                    assessmentId: CURRENT_CMA_ASSESSMENT_ID
+                })
+            });
+
+            const result = await response.json();
+            if (!response.ok || !result.success || !result.data) {
+                throw new Error(result.error_message || 'Failed to load saved CMA assessment.');
+            }
+
+            return result.data;
+        }
+
+        function applySavedCmaAssessment(savedAssessment) {
+            const detail = savedAssessment.assessmentDetailJson || {};
+            assessmentResults = detail.results || {};
+
+            const totalScore = detail.totalScore || savedAssessment.finalCmaScore;
+            const maturityLevel = detail.maturitySummary;
+            const strengths = detail.strengths || [];
+            const improvementAreas = detail.areasForImprovement || [];
+
+            if (totalScore && maturityLevel) {
+                calculatedCmaResult = {
+                    totalScore: totalScore,
+                    maturityLevel: maturityLevel,
+                    strengths: strengths,
+                    improvementAreas: improvementAreas
+                };
+                isCmaDraftSaved = true;
+            }
+        }
+
+        async function loadCmaQuestionnaire() {
+    try {
+        const response = await fetch('/api/v1/dma', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${AUTH_TOKEN}`
+            },
+            body: JSON.stringify({
+                _func: 'get_cma_questionnaire'
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(result.error_message || 'Failed to load CMA questionnaire');
+        }
+
+        cmaQuestionnaire = result.data;
+        const savedAssessment = await fetchSavedCmaAssessmentData();
+        if (savedAssessment) {
+            applySavedCmaAssessment(savedAssessment);
+        }
+        renderAssessmentForm(cmaQuestionnaire);
+
+        if (calculatedCmaResult) {
+            showCalculatedResult(calculatedCmaResult.totalScore, calculatedCmaResult.maturityLevel, calculatedCmaResult.strengths, calculatedCmaResult.improvementAreas);
+            setSaveDraftButtonState();
+            showResultMessage('Saved CMA draft loaded.', 'success');
+        } else {
+            showResultMessage('CMA questionnaire loaded from backend.', 'success');
+        }
+
+    } catch (error) {
+        showResultMessage('Failed to load CMA questionnaire from backend: ' + error.message, 'error');
+    }
+}
+
+       window.onload = function () {
+    loadCmaQuestionnaire();
+};
+    </script>
+</head>
+<body class="p-8">
+
+<div class="max-w-4xl mx-auto">
+    <header class="text-center mb-8">
+        <div class="flex items-center justify-center mb-4">
+            <h1 class="text-4xl font-extrabold primary-text">TSI Ratings</h1>
+        </div>
+        <p class="text-xl font-semibold text-gray-700 mb-1" id="questionnaire-title">Capability Maturity Assessment (CMA)</p>
+        <p class="text-sm text-gray-500" id="header-info">Assessment for evaluating local technology partners and service providers.</p>
+    </header>
+
+    <main>
+        <form id="cma-form" onsubmit="event.preventDefault(); calculateScore();">
+            <div id="assessment-form-container">
+                <div class="text-center p-12 card text-gray-500 font-semibold" id="loading-message">
+                    Loading Capability Maturity Questionnaire... Please wait.
+                </div>
+            </div>
+
+            <div id="result-summary" class="hidden mb-10 p-6 card">
+                <h2 class="text-xl font-bold primary-text mb-6 pb-2 border-b border-gray-200">
+                    CMA Result Summary
+                </h2>
+                <div class="grid gap-4 sm:grid-cols-2 mb-6">
+                    <div class="p-4 border rounded-lg bg-gray-50">
+                        <p class="text-sm font-semibold text-gray-500 mb-1">Total Score</p>
+                        <p class="text-2xl font-bold primary-text" id="score-output">0 / 70</p>
+                    </div>
+                    <div class="p-4 border rounded-lg bg-gray-50">
+                        <p class="text-sm font-semibold text-gray-500 mb-1">Maturity Level</p>
+                        <p class="text-lg font-bold text-gray-800" id="level-output">-</p>
+                    </div>
+                </div>
+                <div class="grid gap-6 sm:grid-cols-2">
+                    <div>
+                        <h3 class="text-base font-bold text-gray-800 mb-2">Strengths</h3>
+                        <div id="strengths-output"></div>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-gray-800 mb-2">Areas for Improvement</h3>
+                        <div id="improvements-output"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sticky-footer sticky bottom-0 p-4 mt-6 card flex justify-between items-center z-10">
+                <div id="result-message" class="text-lg font-bold hidden px-4 py-2 rounded-lg transition-opacity duration-300">
+                </div>
+
+                <div class="flex space-x-4 ml-auto">
+                    <a href="auditor-assessment-list.html"
+                       class="px-6 py-3 border border-gray-400 text-gray-700 bg-white rounded-lg font-semibold hover:bg-gray-100 transition duration-200 flex items-center">
+                        &larr; Back to List
+                    </a>
+
+                    <button type="submit" id="submit-assessment-btn"
+                            class="px-6 py-3 border border-tsi-primary bg-white text-tsi-primary rounded-lg font-semibold hover:bg-tsi-primary hover:text-white transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Calculate Score
+                    </button>
+
+                    <button type="button" id="save-cma-draft-btn" onclick="saveCmaDraft()" disabled
+                            class="px-6 py-3 border border-tsi-primary bg-white text-tsi-primary rounded-lg font-semibold hover:bg-tsi-primary hover:text-white transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Save CMA Draft
+                    </button>
+                </div>
+            </div>
+        </form>
+    </main>
+</div>
+
+</body>
+</html>

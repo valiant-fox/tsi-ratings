@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CMA status request",
+  "type": "object",
+  "properties": {
+    "_func": {
+      "type": "string",
+      "const": "get_cma_status"
+    }
+  },
+  "required": [
+    "_func"
+  ]
+}

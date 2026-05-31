@@ -122,6 +122,23 @@
             return { name: upperStatus, class: 'bg-gray-200 text-gray-700', actions: [] };
         }
 
+        function getCmaStatusDetails(status) {
+            const upperStatus = status.toUpperCase();
+
+            if (upperStatus === 'PENDING') {
+                return { name: 'DRAFT', class: 'status-draft', actions: [
+                    { type: 'edit', text: 'Edit Draft', link: (id) => `cma-assessment.html?assessmentId=${id}&type=CMA`, style: 'primary-text' },
+                    { type: 'publish', text: 'Publish', link: (id) => `#`, style: 'text-green-600' }
+                ] };
+            }
+            if (upperStatus === 'AUDITED') {
+                return { name: 'PUBLISHED', class: 'status-published', actions: [
+                    { type: 'download', text: 'Download', link: (id) => `download.html?assessmentId=${id}&type=CMA`, style: 'primary-text' }
+                ] };
+            }
+            return { name: upperStatus, class: 'bg-gray-200 text-gray-700', actions: [] };
+        }
+
          /**
          * Step 1: Fetches MSME details by email and initiates the DMA.
          */
@@ -181,7 +198,50 @@
        /**
          * Generates the appropriate action links based on assessment status.
          */
+        async function publishCmaAssessment(assessmentId) {
+            try {
+                const response = await fetch(DMA_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify({
+                        _func: 'publish_cma_assessment',
+                        assessmentId: assessmentId
+                    })
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error_message || data.message || 'Failed to publish CMA assessment.');
+                }
+
+                fetchAssessmentData();
+            } catch (error) {
+                alert('Failed to publish CMA assessment: ' + error.message);
+            }
+        }
+
         function generateActionLink(assessment) {
+            const assessmentType = (assessment.type || 'DMA').toUpperCase();
+
+            if (assessmentType === 'CMA') {
+                const details = getCmaStatusDetails(assessment.status);
+                let html = '';
+
+                details.actions.forEach(action => {
+                    const separator = html ? ' | ' : '';
+                    if (action.type === 'publish') {
+                        html += `${separator}<a href="#" onclick="event.preventDefault(); publishCmaAssessment(${assessment.assessmentId})" class="${action.style} hover:underline font-medium">${action.text}</a>`;
+                    } else {
+                        html += `${separator}<a href="${action.link(assessment.assessmentId)}" class="${action.style} hover:underline font-medium">${action.text}</a>`;
+                    }
+                });
+
+                return html;
+            }
+
             const details = getStatusDetails(assessment.status);
             let html = '';
 
@@ -204,20 +264,22 @@
             tbody.innerHTML = '';
 
             if (!assessments || assessments.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">No assessments found. Start a New DMA to begin.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-4 text-center text-gray-500">No assessments found. Start a New DMA to begin.</td></tr>`;
                 return;
             }
 
             assessments.forEach(assessment => {
                 const row = document.createElement('tr');
                 const scoreDisplay = assessment.finalTsiScore ? parseFloat(assessment.finalTsiScore).toFixed(2) : '—';
-                const statusDetails = getStatusDetails(assessment.status);
 
-                const displayId = `TSI-DMA-${assessment.assessmentId}`;
+                const assessmentType = (assessment.type || 'DMA').toUpperCase();
+                const statusDetails = assessmentType === 'CMA' ? getCmaStatusDetails(assessment.status) : getStatusDetails(assessment.status);
+                const displayId = `TSI-${assessmentType === 'CMA' ? 'CMA' : 'DMA'}-${assessment.assessmentId}`;
 
                 row.innerHTML = `
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${displayId}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${assessment.companyName || 'N/A'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${assessment.type || 'DMA'}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold ${scoreDisplay !== '—' ? 'text-tsi-primary' : 'text-gray-500'}">${scoreDisplay}</td>
                     <td class="px-6 py-4 whitespace-nowrap">
                         <span class="status-tag ${statusDetails.class}">${statusDetails.name}</span>
@@ -235,7 +297,7 @@
          */
         async function fetchAssessmentData() {
             const tbody = document.getElementById('assessment-list-body');
-            tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">Loading assessment records...</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-4 text-center text-gray-500">Loading assessment records...</td></tr>`;
 
             try {
                 const response = await fetch(DMA_API_URL, {
@@ -254,11 +316,11 @@
                 if (response.ok && data.success && data.data) {
                     renderAssessmentList(data.data);
                 } else {
-                    tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-red-500">Error loading data: ${data.error_message || 'Unknown API Error'}</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-4 text-center text-red-500">Error loading data: ${data.error_message || 'Unknown API Error'}</td></tr>`;
                 }
             } catch (error) {
                 console.error('Fetch error:', error);
-                tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-red-500">Network Error. Could not connect to the server.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-4 text-center text-red-500">Network Error. Could not connect to the server.</td></tr>`;
             }
         }
 
@@ -306,7 +368,7 @@
     </div>
 
     <nav class="flex-grow">
-        <a href="#" class="nav-item">
+        <a href="auditor-dashboard.html" class="nav-item">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
             Dashboard
             <span style="color: red; font-size: 10px; margin-left: 8px; font-weight: normal;">Coming Soon</span>
@@ -315,7 +377,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2z"/></svg>
             Assessment History
         </a>
-        <a href="#" class="nav-item">
+        <a href="settings.html" class="nav-item">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/></svg>
             Settings
             <span style="color: red; font-size: 10px; margin-left: 8px; font-weight: normal;">Coming Soon</span>
@@ -338,21 +400,17 @@
             <p class="text-gray-500">View all Digital Maturity Assessments (DMA) assigned and completed.</p>
         </header>
 
-        <a href="#" onclick="openNewDmaModal()" class="primary-bg text-white px-6 py-2 rounded-lg font-semibold shadow-md hover:opacity-90 transition duration-150 flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New DMA
-        </a>
-<!--
-        <header>
-            <div>
-            <h1 class="text-3xl font-bold text-gray-800">Assessment History & Status</h1>
-            <p class="text-gray-500">View all Digital Maturity Assessments (DMA) assigned and completed.</p>
-            <button onclick="openNewDmaModal()"
-                    class="primary-bg text-white px-6 py-3 rounded-lg font-semibold hover:bg-opacity-90 transition shadow-md">
-                <i class="fas fa-plus mr-2"></i> New DMA
-            </button>
-            </div>
-        </header>-->
+        <div class="flex gap-3">
+            <a href="#" onclick="openNewDmaModal()" class="primary-bg text-white px-6 py-2 rounded-lg font-semibold shadow-md hover:opacity-90 transition duration-150 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New DMA
+            </a>
+
+            <a href="cma-assessment.html" class="primary-bg text-white px-6 py-2 rounded-lg font-semibold shadow-md hover:opacity-90 transition duration-150 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New CMA
+            </a>
+        </div>
     </div>
 
     <section class="mb-10">
@@ -363,6 +421,7 @@
                 <tr>
                     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assessment ID</th>
                     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company Name</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">TSI Rating</th>
                     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                     <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
